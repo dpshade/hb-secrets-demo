@@ -8,7 +8,7 @@
 import { file, serve } from "bun";
 import { join, extname } from "path";
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4321;
 const HOST = process.env.HOST || "localhost";
 const PUBLIC_DIR = process.cwd();
 

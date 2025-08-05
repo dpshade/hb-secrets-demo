@@ -44,7 +44,38 @@ class HyperBEAMAPI {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
-            const data = await response.json();
+            // Check content type to determine how to parse response
+            const contentType = response.headers.get('content-type');
+            let data;
+            
+            if (contentType && contentType.includes('application/json')) {
+                data = await response.json();
+            } else {
+                // Handle plain text responses (like "secret:xyz...")
+                const textResponse = await response.text();
+                
+                // If response starts with "secret:", parse it as a HyperBEAM secret response
+                if (textResponse.startsWith('secret:')) {
+                    data = {
+                        body: textResponse,
+                        keyid: textResponse,
+                        'wallet-address': textResponse,
+                        committer: textResponse,
+                        headers: response.headers // Preserve headers for cookie extraction
+                    };
+                } else {
+                    // Try to parse as JSON, fallback to text
+                    try {
+                        data = JSON.parse(textResponse);
+                        data.headers = response.headers; // Preserve headers
+                    } catch (e) {
+                        data = { 
+                            body: textResponse,
+                            headers: response.headers
+                        };
+                    }
+                }
+            }
             
             if (CONFIG.DEBUG) {
                 console.log('HyperBEAM Response:', data);
@@ -64,20 +95,51 @@ class HyperBEAMAPI {
      * Generate a new wallet
      */
     async generateWallet(options = {}) {
+        const persistMode = options.persist || CONFIG.DEFAULT_PERSIST_MODE;
+        
         const body = {
-            persist: options.persist || CONFIG.DEFAULT_PERSIST_MODE,
+            persist: persistMode,
             'access-control': options.accessControl || CONFIG.DEFAULT_ACCESS_CONTROL,
             ...options.extraParams
         };
 
+        // Add specific configurations for different persist modes
+        if (persistMode === 'non-volatile') {
+            // Non-volatile storage requires controllers configuration
+            body.controllers = options.controllers || CONFIG.DEFAULT_CONTROLLERS || [];
+            body['required-controllers'] = options.requiredControllers || CONFIG.DEFAULT_REQUIRED_CONTROLLERS || 1;
+        }
+
         // Add query parameter for cookie auth with client persist mode
         let endpoint = CONFIG.ENDPOINTS.SECRET_GENERATE;
-        if (body.persist === 'client') {
+        if (persistMode === 'client') {
             endpoint += '?persist=client';
         }
 
         return await this.request(endpoint, {
             method: 'POST',
+            body: JSON.stringify(body)
+        });
+    }
+
+    /**
+     * Generate wallet with HTTP Basic Auth (deterministic)
+     */
+    async generateWalletBasicAuth(username, password, options = {}) {
+        const body = {
+            persist: options.persist || CONFIG.DEFAULT_PERSIST_MODE,
+            'access-control': options.accessControl || { device: 'http-auth@1.0' },
+            ...options.extraParams
+        };
+
+        // Create Authorization header with Base64 encoded credentials
+        const credentials = btoa(`${username}:${password}`);
+        
+        return await this.request(CONFIG.ENDPOINTS.SECRET_GENERATE, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Basic ${credentials}`
+            },
             body: JSON.stringify(body)
         });
     }
@@ -111,7 +173,6 @@ class HyperBEAMAPI {
      * Sign and commit a message
      */
     async commitMessage(messageData, auth = {}) {
-        let url = CONFIG.ENDPOINTS.SECRET_COMMIT;
         const headers = {};
         
         // Handle different authentication methods
@@ -119,12 +180,13 @@ class HyperBEAMAPI {
             headers['Cookie'] = auth.cookie;
         }
         if (auth.basic) {
-            // For HTTP Basic auth, embed in URL as per new format
-            const baseUrl = this.baseUrl.replace('://', `://${auth.basic}@`);
-            url = baseUrl + CONFIG.ENDPOINTS.SECRET_COMMIT;
+            // Use Authorization header for HTTP Basic auth
+            const credentials = btoa(auth.basic);
+            headers['Authorization'] = `Basic ${credentials}`;
         }
 
         const body = {
+            keyid: messageData.keyid || 'auto', // Use provided keyid or let HyperBEAM auto-select
             target: CONFIG.CHAT_PROCESS_ID,
             data: messageData.content,
             tags: [
@@ -133,25 +195,21 @@ class HyperBEAMAPI {
                 { name: 'App-Name', value: CONFIG.MESSAGE_TAGS.APP_NAME },
                 { name: 'App-Version', value: CONFIG.MESSAGE_TAGS.VERSION },
                 { name: 'Timestamp', value: new Date().toISOString() },
+                { name: 'From', value: 'HyperBEAM-Chat-User' },
                 ...((messageData.tags || []))
             ],
             ...messageData.extraParams
         };
-
-        if (messageData.keyid) {
-            body.keyid = messageData.keyid;
-        }
 
         // If using HTTP Basic auth, add access-control to body
         if (auth.basic) {
             body['access-control'] = { device: 'http-auth@1.0' };
         }
 
-        return await this.request(url, {
+        return await this.request(CONFIG.ENDPOINTS.SECRET_COMMIT, {
             method: 'POST',
             headers,
-            body: JSON.stringify(body),
-            useFullUrl: !!auth.basic // Use full URL for basic auth
+            body: JSON.stringify(body)
         });
     }
 
@@ -181,7 +239,8 @@ class HyperBEAMAPI {
             headers['Cookie'] = auth.cookie;
         }
         if (auth.basic) {
-            headers['Authorization'] = `Basic ${btoa(auth.basic)}`;
+            const credentials = btoa(auth.basic);
+            headers['Authorization'] = `Basic ${credentials}`;
         }
 
         const body = { keyids };
@@ -214,8 +273,16 @@ class HyperBEAMAPI {
             return cookies;
         }
         
-        // Fallback to HTTP headers
-        if (response && response.headers) {
+        // For secret responses, create a cookie from the secret value
+        if (response && response.body && response.body.startsWith('secret:')) {
+            // Extract the hash part after "secret:"
+            const secretHash = response.body.substring(7); // Remove "secret:" prefix
+            cookies.secret_hash = `secret:${secretHash}`;
+            return cookies;
+        }
+        
+        // Fallback to HTTP headers (Response object from fetch)
+        if (response && typeof response.headers === 'object' && response.headers.get) {
             const setCookieHeader = response.headers.get('set-cookie');
             
             if (setCookieHeader) {

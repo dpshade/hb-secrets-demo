@@ -36,12 +36,24 @@ class AuthSystem {
      * Bind UI elements
      */
     bindUIElements() {
-        this.authPanel = document.getElementById('auth-panel');
+        this.authPanel = document.querySelector('.auth-builder-panel');
         this.chatInterface = document.getElementById('chat-interface');
         this.authIndicator = document.getElementById('auth-indicator');
         this.authText = document.getElementById('auth-text');
         this.userAddress = document.getElementById('user-address');
         this.currentUserSpan = document.getElementById('current-user');
+        this.welcomeState = document.getElementById('welcome-state');
+        this.connectedAddress = document.getElementById('connected-address');
+        this.connectedDisconnectBtn = document.getElementById('connected-disconnect-btn');
+        
+        // Wallet management elements
+        this.walletsLoading = document.getElementById('wallets-loading');
+        this.walletsList = document.getElementById('wallets-list');
+        this.refreshWalletsBtn = document.getElementById('refresh-wallets-btn');
+        this.exportWalletsBtn = document.getElementById('export-wallets-btn');
+        this.syncWalletsBtn = document.getElementById('sync-wallets-btn');
+        this.syncFromPeerBtn = document.getElementById('sync-from-peer-btn');
+        this.peerNodeInput = document.getElementById('peer-node-input');
     }
 
     /**
@@ -66,6 +78,28 @@ class AuthSystem {
         // Disconnect button
         document.getElementById('disconnect-btn').addEventListener('click', () => {
             this.disconnect();
+        });
+
+        // Connected disconnect button  
+        document.getElementById('connected-disconnect-btn').addEventListener('click', () => {
+            this.disconnect();
+        });
+
+        // Wallet management events
+        this.refreshWalletsBtn.addEventListener('click', () => {
+            this.loadWallets();
+        });
+
+        this.exportWalletsBtn.addEventListener('click', () => {
+            this.exportAllWallets();
+        });
+
+        this.syncWalletsBtn.addEventListener('click', () => {
+            this.toggleSyncOptions();
+        });
+
+        this.syncFromPeerBtn.addEventListener('click', () => {
+            this.syncFromPeer();
         });
     }
 
@@ -111,8 +145,9 @@ class AuthSystem {
             generateBtn.textContent = 'Generating...';
             generateBtn.disabled = true;
             
-            // Get selected persistence mode
-            const persistMode = document.querySelector('input[name="persist"]:checked').value;
+            // Get selected persistence mode from storage tabs
+            const activeStorageTab = document.querySelector('.storage-tab.active');
+            const persistMode = activeStorageTab ? activeStorageTab.getAttribute('data-persist') : 'in-memory';
             
             this.showStatus('Generating new wallet...', 'info');
             
@@ -152,22 +187,44 @@ class AuthSystem {
      */
     async importWallet() {
         const importBtn = document.getElementById('import-wallet-btn');
-        const walletJsonTextarea = document.getElementById('wallet-json');
+        const privateKeyInput = document.getElementById('private-key-input');
+        const mnemonicInput = document.getElementById('mnemonic-input');
+        const walletJsonInput = document.getElementById('wallet-json');
         const originalText = importBtn.textContent;
         
         try {
-            const walletJson = walletJsonTextarea.value.trim();
-            if (!walletJson) {
-                this.showStatus('Please paste your wallet JSON', 'warning');
+            const privateKey = privateKeyInput ? privateKeyInput.value.trim() : '';
+            const mnemonic = mnemonicInput ? mnemonicInput.value.trim() : '';
+            const walletJson = walletJsonInput ? walletJsonInput.value.trim() : '';
+            
+            if (!privateKey && !mnemonic && !walletJson) {
+                this.showStatus('Please enter your private key, mnemonic phrase, or wallet JSON', 'warning');
                 return;
             }
+            
+            // Determine which import method to use
+            let walletData;
+            if (walletJson) {
+                // Try to parse as JSON first
+                try {
+                    JSON.parse(walletJson);
+                    walletData = walletJson;
+                } catch (error) {
+                    this.showStatus('Invalid wallet JSON format', 'error');
+                    return;
+                }
+            } else {
+                // Use private key if provided, otherwise use mnemonic
+                walletData = privateKey || mnemonic;
+            }
 
-            // Validate JSON
-            try {
-                JSON.parse(walletJson);
-            } catch (error) {
-                this.showStatus('Invalid wallet JSON format', 'error');
-                return;
+            // Basic validation for private key or mnemonic
+            if (privateKey && privateKey.length < 32) {
+                this.showStatus('Private key appears to be too short', 'warning');
+            }
+            
+            if (mnemonic && mnemonic.split(' ').length < 12) {
+                this.showStatus('Mnemonic phrase should have at least 12 words', 'warning');
             }
 
             importBtn.textContent = 'Importing...';
@@ -175,7 +232,7 @@ class AuthSystem {
             
             this.showStatus('Importing wallet...', 'info');
             
-            const response = await window.HyperBEAM.importWallet(walletJson, {
+            const response = await window.HyperBEAM.importWallet(walletData, {
                 persist: 'in-memory' // Default for imported wallets
             });
             
@@ -193,7 +250,10 @@ class AuthSystem {
                 });
                 
                 this.showStatus('Wallet imported successfully!', 'success');
-                walletJsonTextarea.value = ''; // Clear the textarea
+                // Clear the input fields
+                if (privateKeyInput) privateKeyInput.value = '';
+                if (mnemonicInput) mnemonicInput.value = '';
+                if (walletJsonInput) walletJsonInput.value = '';
             } else {
                 throw new Error('Invalid response from wallet import');
             }
@@ -208,13 +268,21 @@ class AuthSystem {
     }
 
     /**
-     * Authenticate with HTTP Basic Auth
+     * Authenticate with HTTP Basic Auth (Deterministic Wallet)
      */
     async basicAuth() {
         const basicBtn = document.getElementById('basic-auth-btn');
-        const username = document.getElementById('basic-username').value.trim();
-        const password = document.getElementById('basic-password').value.trim();
+        const usernameInput = document.getElementById('username-input');
+        const passwordInput = document.getElementById('password-input');
         const originalText = basicBtn.textContent;
+        
+        if (!usernameInput || !passwordInput) {
+            this.showStatus('Username or password input fields not found', 'error');
+            return;
+        }
+        
+        const username = usernameInput.value.trim();
+        const password = passwordInput.value.trim();
         
         try {
             if (!username || !password) {
@@ -225,33 +293,31 @@ class AuthSystem {
             basicBtn.textContent = 'Connecting...';
             basicBtn.disabled = true;
             
-            this.showStatus('Testing HTTP Basic authentication...', 'info');
+            this.showStatus('Authenticating with deterministic wallet...', 'info');
             
-            // Test basic auth by generating a wallet with HTTP auth
-            const basicAuthString = window.HyperBEAM.createBasicAuth(username, password);
-            
-            // Generate wallet using HTTP Basic Auth
-            const response = await window.HyperBEAM.generateWallet({
+            // The HyperBEAM node will derive the same wallet from these credentials
+            // using PBKDF2 with consistent salt and iterations
+            const response = await window.HyperBEAM.generateWalletBasicAuth(username, password, {
                 persist: 'in-memory',
                 'access-control': { device: 'http-auth@1.0' }
             });
             
-            // If we get here, auth worked and wallet was generated
+            // Extract wallet info from response
             const keyid = response.body || response.keyid;
             const walletAddress = response['wallet-address'] || response.committer || keyid;
             
             this.handleAuthSuccess({
                 method: 'basic-auth',
                 username: username,
-                basicAuth: basicAuthString,
+                basicAuth: `${username}:${password}`,
                 walletAddress: walletAddress,
                 keyid: keyid
             });
             
-            this.showStatus('HTTP Basic authentication successful!', 'success');
+            this.showStatus('HTTP Basic authentication successful! Same credentials will always generate the same wallet.', 'success');
             
             // Clear password field for security
-            document.getElementById('basic-password').value = '';
+            if (passwordInput) passwordInput.value = '';
             
         } catch (error) {
             this.showStatus(`HTTP Basic authentication failed: ${error.message}`, 'error');
@@ -354,25 +420,32 @@ class AuthSystem {
      */
     updateUI() {
         if (this.isAuthenticated) {
-            // Hide auth panel, show chat
-            this.authPanel.classList.add('hidden');
-            this.chatInterface.classList.remove('hidden');
+            // Make auth panel smaller and show connected state, show chat
+            if (this.authPanel) this.authPanel.classList.add('connected');
+            if (this.chatInterface) this.chatInterface.classList.remove('hidden');
+            if (this.welcomeState) this.welcomeState.classList.add('hidden');
             
             // Update status indicator
-            this.authIndicator.className = 'status-indicator online';
-            this.authText.textContent = 'Connected';
-            this.userAddress.textContent = this.currentUser;
-            this.userAddress.classList.remove('hidden');
-            this.currentUserSpan.textContent = this.currentUser;
+            if (this.authIndicator) this.authIndicator.className = 'status-indicator online';
+            if (this.authText) this.authText.textContent = 'Connected';
+            if (this.userAddress) {
+                this.userAddress.textContent = this.currentUser;
+                this.userAddress.classList.remove('hidden');
+            }
+            if (this.currentUserSpan) this.currentUserSpan.textContent = this.currentUser;
+            
+            // Update connected summary
+            if (this.connectedAddress) this.connectedAddress.textContent = this.currentUser;
         } else {
-            // Show auth panel, hide chat
-            this.authPanel.classList.remove('hidden');
-            this.chatInterface.classList.add('hidden');
+            // Show auth panel in full size, hide chat
+            if (this.authPanel) this.authPanel.classList.remove('connected');
+            if (this.chatInterface) this.chatInterface.classList.add('hidden');
+            if (this.welcomeState) this.welcomeState.classList.remove('hidden');
             
             // Update status indicator
-            this.authIndicator.className = 'status-indicator offline';
-            this.authText.textContent = 'Not Connected';
-            this.userAddress.classList.add('hidden');
+            if (this.authIndicator) this.authIndicator.className = 'status-indicator offline';
+            if (this.authText) this.authText.textContent = 'Not Connected';
+            if (this.userAddress) this.userAddress.classList.add('hidden');
         }
     }
 
@@ -397,6 +470,11 @@ class AuthSystem {
      */
     showStatus(message, type = 'info') {
         const statusContainer = document.getElementById('status-messages');
+        if (!statusContainer) {
+            console.log(`[${type.toUpperCase()}] ${message}`);
+            return;
+        }
+        
         const statusElement = document.createElement('div');
         statusElement.className = `status-message ${type}`;
         statusElement.textContent = message;
@@ -412,6 +490,404 @@ class AuthSystem {
         
         // Also log to console
         console.log(`[${type.toUpperCase()}] ${message}`);
+    }
+
+    /**
+     * Load wallets from HyperBEAM node
+     */
+    async loadWallets() {
+        if (!this.walletsLoading || !this.walletsList) return;
+        
+        try {
+            this.walletsLoading.classList.remove('hidden');
+            this.walletsList.innerHTML = '';
+            
+            const response = await window.HyperBEAM.listWallets();
+            
+            if (response) {
+                const wallets = this.parseWalletsFromResponse(response);
+                if (wallets.length > 0) {
+                    this.renderWallets(wallets);
+                } else {
+                    this.showNoWallets();
+                }
+            } else {
+                this.showNoWallets();
+            }
+            
+        } catch (error) {
+            console.warn('Failed to load wallets:', error);
+            this.showWalletsError('Failed to load wallets from node');
+        } finally {
+            this.walletsLoading.classList.add('hidden');
+        }
+    }
+
+    /**
+     * Parse wallets from HyperBEAM list response
+     */
+    parseWalletsFromResponse(response) {
+        const wallets = [];
+        
+        // HyperBEAM returns wallets as numbered properties mixed with headers
+        // We need to filter for properties that contain "secret:" values
+        if (response && typeof response === 'object') {
+            Object.entries(response).forEach(([key, value]) => {
+                // Check if this is a wallet entry (numeric key with secret: value)
+                if (!isNaN(key) && typeof value === 'string' && value.startsWith('secret:')) {
+                    wallets.push({
+                        keyid: value,
+                        id: key,
+                        address: value, // For display purposes
+                        'wallet-address': value,
+                        persist: 'unknown', // We don't have this info from list response
+                        'access-control': { device: 'unknown' }
+                    });
+                }
+            });
+        }
+        
+        return wallets;
+    }
+
+    /**
+     * Render wallets list
+     */
+    renderWallets(wallets) {
+        if (!wallets || wallets.length === 0) {
+            this.showNoWallets();
+            return;
+        }
+
+        const walletsHtml = wallets.map(wallet => this.renderWalletItem(wallet)).join('');
+        this.walletsList.innerHTML = walletsHtml;
+
+        // Add click handlers for wallet actions (only if not already added)
+        if (!this.walletsList.hasAttribute('data-handlers-attached')) {
+            this.walletsList.addEventListener('click', (e) => {
+                if (e.target.classList.contains('wallet-action-btn')) {
+                    const action = e.target.dataset.action;
+                    const keyid = e.target.closest('.wallet-item').dataset.keyid;
+                    this.handleWalletAction(action, keyid);
+                } else if (e.target.closest('.wallet-item')) {
+                    const keyid = e.target.closest('.wallet-item').dataset.keyid;
+                    this.selectWallet(keyid);
+                }
+            });
+            this.walletsList.setAttribute('data-handlers-attached', 'true');
+        }
+    }
+
+    /**
+     * Render individual wallet item
+     */
+    renderWalletItem(wallet) {
+        const keyid = wallet.keyid || wallet.id || 'unknown';
+        const address = wallet.address || wallet['wallet-address'] || keyid;
+        const isActive = this.keyid === keyid;
+        const status = isActive ? 'active' : 'stored';
+        const statusText = isActive ? 'Active' : 'Stored';
+        
+        // Format metadata - show what we know from HyperBEAM
+        const walletIndex = wallet.id || 'unknown';
+        const persist = wallet.persist || 'hosted'; // We know it's hosted if it's in the list
+        const accessControl = wallet['access-control'] || wallet.accessControl || {};
+        const device = accessControl.device || 'cookie/http-auth';
+        
+        // Extract the secret hash part for display
+        const secretHash = keyid.startsWith('secret:') ? keyid.substring(7) : keyid;
+        const displayHash = this.truncateKeyId(secretHash);
+        
+        return `
+            <div class="wallet-item ${isActive ? 'active' : ''}" data-keyid="${keyid}">
+                <div class="wallet-info">
+                    <div class="wallet-keyid">Wallet #${walletIndex}</div>
+                    <div class="wallet-address">${displayHash}</div>
+                    <div class="wallet-meta">
+                        <span class="wallet-status ${status}">${statusText}</span>
+                        • ${persist} • ${device}
+                    </div>
+                </div>
+                <div class="wallet-actions-item">
+                    ${!isActive ? '<button class="wallet-action-btn" data-action="use" title="Connect to this wallet">Connect</button>' : ''}
+                    <button class="wallet-action-btn" data-action="export" title="Export wallet data">Export</button>
+                    <button class="wallet-action-btn" data-action="copy" title="Copy wallet secret">Copy</button>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * Handle wallet actions
+     */
+    async handleWalletAction(action, keyid) {
+        switch (action) {
+            case 'use':
+                await this.useWallet(keyid);
+                break;
+            case 'export':
+                await this.exportWallet(keyid);
+                break;
+            case 'copy':
+                this.copyWalletId(keyid);
+                break;
+        }
+    }
+
+    /**
+     * Use a different wallet
+     */
+    async useWallet(keyid) {
+        try {
+            this.showStatus('Connecting to wallet...', 'info');
+            
+            // First disconnect from current wallet (clears UI state)
+            this.disconnect();
+            
+            // Simulate the full connection flow like generateWallet
+            const walletAddress = keyid; // The keyid is the wallet address for hosted wallets
+            
+            // Determine the method based on how this wallet was created
+            // For hosted wallets, we'll use the same auth method as current session
+            const authMethod = this.authMethod || 'hosted-wallet';
+            
+            // Create auth data similar to generateWallet success
+            const authData = {
+                method: authMethod,
+                keyid: keyid,
+                walletAddress: walletAddress,
+                persist: 'hosted', // It's a hosted wallet since it's in the list
+                cookies: this.authData?.cookies || {}, // Preserve existing cookies if any
+                basicAuth: this.authData?.basicAuth || null // Preserve basic auth if any
+            };
+            
+            // Use the same success handler as generate wallet
+            this.handleAuthSuccess(authData);
+            
+            this.showStatus('Successfully connected to wallet!', 'success');
+            
+            // Refresh wallet list to show new active state
+            setTimeout(() => {
+                this.loadWallets();
+            }, 500);
+            
+        } catch (error) {
+            this.showStatus(`Failed to connect to wallet: ${error.message}`, 'error');
+            console.error('Wallet connection error:', error);
+        }
+    }
+
+    /**
+     * Export specific wallet
+     */
+    async exportWallet(keyid) {
+        try {
+            this.showStatus('Exporting wallet...', 'info');
+            
+            // Format keyids as array for the export API
+            const keyidsToExport = [keyid];
+            
+            // Get authentication headers
+            const authHeaders = this.getAuthHeaders();
+            
+            const response = await window.HyperBEAM.exportWallet(keyidsToExport, authHeaders);
+            
+            if (response) {
+                // Extract a clean filename from the keyid
+                const cleanKeyid = keyid.startsWith('secret:') ? keyid.substring(7) : keyid;
+                const shortKeyid = cleanKeyid.substring(0, 12);
+                const timestamp = new Date().toISOString().split('T')[0];
+                
+                // Create download link
+                const blob = new Blob([JSON.stringify(response, null, 2)], { 
+                    type: 'application/json' 
+                });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `hyperbeam-wallet-${shortKeyid}-${timestamp}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                this.showStatus(`Wallet exported successfully: ${this.truncateKeyId(keyid)}`, 'success');
+            } else {
+                throw new Error('Empty response from export API');
+            }
+        } catch (error) {
+            this.showStatus(`Failed to export wallet: ${error.message}`, 'error');
+            console.error('Wallet export error:', error);
+        }
+    }
+
+    /**
+     * Copy wallet ID to clipboard
+     */
+    async copyWalletId(keyid) {
+        try {
+            await navigator.clipboard.writeText(keyid);
+            this.showStatus('Wallet secret copied to clipboard', 'success');
+        } catch (error) {
+            // Fallback for browsers that don't support clipboard API
+            const textArea = document.createElement('textarea');
+            textArea.value = keyid;
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                this.showStatus('Wallet secret copied to clipboard', 'success');
+            } catch (fallbackError) {
+                this.showStatus('Failed to copy to clipboard', 'error');
+            }
+            document.body.removeChild(textArea);
+        }
+    }
+
+    /**
+     * Select wallet (highlight it)
+     */
+    selectWallet(keyid) {
+        // Remove active class from all items
+        this.walletsList.querySelectorAll('.wallet-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        
+        // Add active class to selected item
+        const selectedItem = this.walletsList.querySelector(`[data-keyid="${keyid}"]`);
+        if (selectedItem) {
+            selectedItem.classList.add('active');
+        }
+    }
+
+    /**
+     * Export all wallets
+     */
+    async exportAllWallets() {
+        const exportBtn = this.exportWalletsBtn;
+        const originalText = exportBtn.textContent;
+        
+        try {
+            exportBtn.textContent = 'Exporting...';
+            exportBtn.disabled = true;
+            
+            const response = await window.HyperBEAM.exportWallet('all', this.getAuthHeaders());
+            
+            if (response) {
+                // Create download link
+                const blob = new Blob([JSON.stringify(response, null, 2)], { 
+                    type: 'application/json' 
+                });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `hyperbeam-wallets-${new Date().toISOString().split('T')[0]}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                this.showStatus('All wallets exported successfully', 'success');
+            }
+        } catch (error) {
+            this.showStatus(`Failed to export wallets: ${error.message}`, 'error');
+        } finally {
+            exportBtn.textContent = originalText;
+            exportBtn.disabled = false;
+        }
+    }
+
+    /**
+     * Toggle sync options visibility
+     */
+    toggleSyncOptions() {
+        const syncOptions = document.querySelector('.sync-options');
+        if (syncOptions) {
+            const isVisible = syncOptions.style.display !== 'none';
+            syncOptions.style.display = isVisible ? 'none' : 'block';
+        }
+    }
+
+    /**
+     * Sync wallets from peer node
+     */
+    async syncFromPeer() {
+        const peerUrl = this.peerNodeInput.value.trim();
+        
+        if (!peerUrl) {
+            this.showStatus('Please enter a peer node URL', 'warning');
+            return;
+        }
+
+        const syncBtn = this.syncFromPeerBtn;
+        const originalText = syncBtn.textContent;
+        
+        try {
+            syncBtn.textContent = 'Syncing...';
+            syncBtn.disabled = true;
+            
+            const response = await window.HyperBEAM.syncWallets(peerUrl);
+            
+            if (response) {
+                this.showStatus('Wallets synced successfully from peer', 'success');
+                // Refresh the wallets list
+                setTimeout(() => this.loadWallets(), 1000);
+            }
+        } catch (error) {
+            this.showStatus(`Failed to sync wallets: ${error.message}`, 'error');
+        } finally {
+            syncBtn.textContent = originalText;
+            syncBtn.disabled = false;
+        }
+    }
+
+    /**
+     * Show no wallets message
+     */
+    showNoWallets() {
+        this.walletsList.innerHTML = `
+            <div class="no-wallets-message">
+                <p>No stored wallets found. Generate or import a wallet to get started.</p>
+            </div>
+        `;
+    }
+
+    /**
+     * Show wallets error
+     */
+    showWalletsError(message) {
+        this.walletsList.innerHTML = `
+            <div class="no-wallets-message">
+                <p>❌ ${message}</p>
+                <button onclick="window.Auth.loadWallets()" class="btn secondary small">Retry</button>
+            </div>
+        `;
+    }
+
+    /**
+     * Truncate key ID for display
+     */
+    truncateKeyId(keyid) {
+        if (!keyid) return 'unknown';
+        
+        // Remove secret: prefix if present for display
+        const cleanKeyid = keyid.startsWith('secret:') ? keyid.substring(7) : keyid;
+        
+        if (cleanKeyid.length <= 20) return cleanKeyid;
+        return `${cleanKeyid.substring(0, 8)}...${cleanKeyid.substring(cleanKeyid.length - 8)}`;
+    }
+
+    /**
+     * Truncate address for display
+     */
+    truncateAddress(address) {
+        if (!address) return 'unknown';
+        
+        // Remove secret: prefix if present for display
+        const cleanAddress = address.startsWith('secret:') ? address.substring(7) : address;
+        
+        if (cleanAddress.length <= 24) return cleanAddress;
+        return `${cleanAddress.substring(0, 12)}...${cleanAddress.substring(cleanAddress.length - 8)}`;
     }
 }
 
