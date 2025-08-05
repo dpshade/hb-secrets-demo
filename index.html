@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HyperBEAM Chat</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- Connection Status Header -->
+    <div class="connection-header">
+        <div class="connection-status">
+            <div id="auth-indicator" class="status-indicator offline">
+                <span class="status-dot"></span>
+                <span id="auth-text">Not Connected</span>
+            </div>
+            <div id="user-address" class="user-address hidden"></div>
+        </div>
+    </div>
+
+    <div class="app-container">
+        <!-- Auth Panel (Left) -->
+        <div class="auth-builder-panel">
+            <div class="panel-header">
+                <div class="panel-icon">🔐</div>
+                <h2>Authentication</h2>
+                <button class="configure-btn">Configure</button>
+            </div>
+            
+            <div class="auth-tabs">
+                <button class="auth-tab active" data-tab="generate">Generate</button>
+                <button class="auth-tab" data-tab="import">Import</button>
+                <button class="auth-tab" data-tab="basic">Basic Auth</button>
+            </div>
+
+            <div class="auth-tab-content">
+                <!-- Generate Wallet Tab -->
+                <div id="generate-tab" class="tab-panel active">
+                    <div class="section-header">
+                        <div class="section-badge">WALLET OPTIONS</div>
+                    </div>
+                    
+                    <div class="auth-options">
+                        <label class="option-item">
+                            <input type="radio" name="persist" value="client" checked>
+                            <span>Client-side (you store the key)</span>
+                        </label>
+                        <label class="option-item">
+                            <input type="radio" name="persist" value="in-memory">
+                            <span>In-memory (temporary)</span>
+                        </label>
+                        <label class="option-item">
+                            <input type="radio" name="persist" value="non-volatile">
+                            <span>Persistent (stored on server)</span>
+                        </label>
+                    </div>
+                    
+                    <button id="generate-wallet-btn" class="btn primary">Generate Wallet</button>
+                </div>
+
+                <!-- Import Wallet Tab -->
+                <div id="import-tab" class="tab-panel">
+                    <div class="section-header">
+                        <div class="section-badge">WALLET JSON</div>
+                    </div>
+                    
+                    <textarea id="wallet-json" placeholder="Paste your Arweave wallet JSON here..."></textarea>
+                    <button id="import-wallet-btn" class="btn primary">Import Wallet</button>
+                </div>
+
+                <!-- Basic Auth Tab -->
+                <div id="basic-tab" class="tab-panel">
+                    <div class="section-header">
+                        <div class="section-badge">CREDENTIALS</div>
+                    </div>
+                    
+                    <input type="text" id="basic-username" placeholder="Username">
+                    <input type="password" id="basic-password" placeholder="Password">
+                    <button id="basic-auth-btn" class="btn primary">Connect with Basic Auth</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat Panel (Right) -->
+        <div class="chat-panel">
+            <div class="panel-header">
+                <div class="panel-icon">💬</div>
+                <h2>Public Chat</h2>
+                <div class="chat-tabs">
+                    <button class="chat-tab active">HyperBuddy</button>
+                    <button class="chat-tab">Formatted</button>
+                    <button class="chat-tab">Headers</button>
+                    <button class="chat-tab">Raw</button>
+                </div>
+            </div>
+
+            <div class="chat-status-banner">
+                <span class="status-dot online"></span>
+                <span>Ready to communicate with HyperBEAM</span>
+            </div>
+
+            <!-- Chat Interface -->
+            <div id="chat-interface" class="chat-interface hidden">
+                <div id="messages-container" class="messages-container">
+                    <div class="message-loading">Loading messages...</div>
+                </div>
+
+                <div class="message-input-container">
+                    <div class="input-group">
+                        <input type="text" id="message-input" placeholder="Type your message..." maxlength="500">
+                        <button id="send-btn" class="btn primary send-btn">Send</button>
+                    </div>
+                    <div class="input-info">
+                        <span id="char-count">0/500</span>
+                        <button id="disconnect-btn" class="btn danger small">Disconnect</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Welcome State -->
+            <div id="welcome-state" class="welcome-state">
+                <div class="system-badge">SYSTEM</div>
+                <div class="system-ready">Ready</div>
+                <div class="welcome-content">
+                    <div class="welcome-icon">👋</div>
+                    <p>Welcome to HyperBEAM Interface! I'm your friendly assistant ready to help you explore the AO ecosystem.</p>
+                    <p>🚀 Send your first request to get started!</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Messages -->
+    <div id="status-messages" class="status-messages"></div>
+
+    <!-- Configuration -->
+    <script src="config.js"></script>
+    
+    <!-- Core Scripts -->
+    <script src="js/hyperbeam-api.js"></script>
+    <script src="js/auth.js"></script>  
+    <script src="js/chat.js"></script>
+    <script src="js/ui-tabs.js"></script>
+
+    <script>
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize authentication system
+            Auth.init();
+            
+            // Initialize chat system
+            Chat.init();
+            
+            console.log('HyperBEAM Chat initialized');
+        });
+    </script>
+</body>
+</html>
