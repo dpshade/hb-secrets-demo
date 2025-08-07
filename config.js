@@ -29,7 +29,10 @@ const CONFIG = {
         PROCESS_NOW: (processId) => `/${processId}/now/~json@1.0/serialize`,
         PROCESS_PUSH: (processId, action) => `/${processId}/push&action=${action}&!/serialize~json@1.0`,
         PROCESS_PUSH_WITH_PARAMS: (processId, action, params) => {
-            const queryParams = new URLSearchParams(params).toString();
+            // Manual parameter construction to avoid unnecessary URL encoding
+            const queryParams = Object.entries(params)
+                .map(([key, value]) => `${key}=${value}`)
+                .join('&');
             return `/${processId}/push&action=${action}&${queryParams}&!/serialize~json@1.0`;
         },
         PROCESS_SLOT_COMPUTE: (processId, slot) => 

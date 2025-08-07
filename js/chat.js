@@ -18,6 +18,9 @@ class ChatSystem {
         this.isPolling = false;
         this.pollInterval = null;
         
+        // Track sent messages to prevent duplicates
+        this.sentMessageHashes = new Map(); // content+author -> messageId
+        
         // Chat history system
         this.chatHistory = new ChatHistory(hyperbeamAPI, this.config.PROCESS_ID);
         
@@ -103,22 +106,40 @@ class ChatSystem {
         const usernameInput = document.getElementById('username-input');
         const username = usernameInput?.value?.trim() || 'Chat User';
         
+        this.config.debug(`Sending with username: ${username}`);
+        
         this.config.log(`Sending message ${messageId}: "${messageContent}"`);
         this.updateStatus('Sending message...', '');
 
         try {
-            // Create message object
+            // Create message object with pending state
             const message = {
                 id: messageId,
                 content: messageContent,
                 timestamp: timestamp,
                 author: username,
-                status: 'sending',
-                method: 'direct-push'
+                status: 'pending',
+                method: 'direct-push',
+                isPending: true
             };
+            
+            // No longer using hash-based deduplication
 
-            // Add to messages immediately (optimistic update)
+            // Add to messages immediately (optimistic update) with pending state
             this.addMessage(message);
+            
+            // Set a timeout to auto-confirm if no confirmation comes back
+            setTimeout(() => {
+                const stillPendingMessage = this.messages.find(m => m.id === messageId && m.isPending);
+                if (stillPendingMessage) {
+                    this.config.debug(`Auto-confirming message ${messageId} after timeout`);
+                    this.updateMessageStatus(messageId, 'confirmed', {
+                        autoConfirmed: true,
+                        reason: 'timeout'
+                    });
+                    // Auto-confirmation cleanup
+                }
+            }, 15000); // 15 second timeout
 
             // Send using direct push method including username as a tag
             const result = await this.api.pushMessage(messageContent, 'chat-message', {
@@ -127,7 +148,7 @@ class ChatSystem {
 
             // Update message status
             if (result.ok) {
-                this.updateMessageStatus(messageId, 'sent', {
+                this.updateMessageStatus(messageId, 'confirmed', {
                     success: true,
                     method: 'direct-push',
                     response: result
@@ -281,14 +302,76 @@ class ChatSystem {
         } else if (historyMessage.username) {
             username = historyMessage.username;
         }
+        
+        // Simple approach: Is this message from the current user?
+        const usernameInput = document.getElementById('username-input');
+        const currentUsername = usernameInput?.value?.trim() || 'Chat User';
+        
+        this.config.debug(`Processing history: '${historyMessage.content}' from '${username}', current user: '${currentUsername}'`);
+        
+        // If this message is from the current user, merge it with the existing UI message
+        if (username === currentUsername) {
+            // Find the most recent matching message regardless of pending/confirmed status
+            const existing = this.messages.slice().reverse().find(m =>
+                m.content === historyMessage.content &&
+                m.author === currentUsername
+            );
 
-        // Create message from history data
+            if (existing) {
+                // If we've already set the same slot/reference, skip re-processing
+                if (existing.slot === historyMessage.slot && existing.reference === historyMessage.reference) {
+                    this.config.debug('Own history message already processed; skipping');
+                    return;
+                }
+
+                // Update existing message in place
+                existing.status = 'confirmed';
+                existing.isPending = false;
+                existing.slot = historyMessage.slot;
+                existing.reference = historyMessage.reference;
+                existing.source = 'chat-history';
+
+                // Update UI
+                if (this.messageContainer) {
+                    const el = this.messageContainer.querySelector(`[data-message-id="${existing.id}"]`);
+                    if (el) {
+                        this.updateMessageElement(el, existing);
+                        el.classList.remove('pending');
+                        el.classList.add('confirmed');
+                    }
+                }
+
+                this.emit('messageReceived', { message: existing, slot: historyMessage.slot });
+                return; // Do not add a second message
+            }
+        }
+        
+        // If we get here, this is a NEW message from someone else - add it
+        if (false) { // This condition will never be true, removing the old logic
+            // This is a confirmation of a message we sent - update the existing message
+            const existingMessage = this.messages.find(m => m.id === existingMessageId);
+            if (existingMessage && existingMessage.isPending) {
+                this.config.debug(`Confirming sent message ${existingMessageId}`);
+                this.updateMessageStatus(existingMessageId, 'confirmed', {
+                    slot: historyMessage.slot,
+                    reference: historyMessage.reference,
+                    confirmed: true
+                });
+                
+                // No longer using hash tracking
+                
+                this.emit('messageReceived', { message: existingMessage, slot: historyMessage.slot });
+                return;
+            }
+        }
+
+        // This is a new message from someone else - add it normally
         const processMessage = {
             id: `history-${historyMessage.slot}-${historyMessage.reference}`,
             content: historyMessage.content,
             timestamp: historyMessage.timestamp,
             author: username,
-            status: 'executed',
+            status: 'received',
             slot: historyMessage.slot,
             reference: historyMessage.reference,
             source: 'chat-history'
@@ -304,20 +387,21 @@ class ChatSystem {
     checkPendingMessages(currentSlot) {
         for (const [messageId, messageData] of this.pendingMessages) {
             if (messageData.waitingForExecution) {
-                // If slot has advanced beyond when we sent the message, mark as executed
+                // If slot has advanced beyond when we sent the message, consider it processed
+                // but don't change the status from "sent" to maintain iMessage-style simplicity
                 const sendSlot = messageData.sendResult?.initialSlot;
                 if (sendSlot && currentSlot > sendSlot) {
-                    this.updateMessageStatus(messageId, 'executed', {
-                        executedAtSlot: currentSlot,
-                        ...messageData.sendResult
-                    });
-                    
                     this.pendingMessages.delete(messageId);
                     this.emit('executionComplete', { messageId, messageData, slot: currentSlot });
                 }
             }
         }
     }
+
+    /**
+     * Create a hash for message deduplication
+     */
+    // Removed createMessageHash - using simpler username comparison
 
     /**
      * Add a message to the chat
@@ -350,14 +434,25 @@ class ChatSystem {
     updateMessageStatus(messageId, status, data = {}) {
         const message = this.messages.find(m => m.id === messageId);
         if (message) {
+            const oldStatus = message.status;
             message.status = status;
             message.statusData = data;
+            
+            // Update pending state
+            if (status === 'confirmed') {
+                message.isPending = false;
+            }
             
             // Update UI if message is visible
             if (this.messageContainer) {
                 const messageEl = this.messageContainer.querySelector(`[data-message-id="${messageId}"]`);
                 if (messageEl) {
                     this.updateMessageElement(messageEl, message);
+                    // Add smooth transition classes
+                    if (oldStatus === 'pending' && status === 'confirmed') {
+                        messageEl.classList.remove('pending');
+                        messageEl.classList.add('confirmed');
+                    }
                 }
             }
             
@@ -372,35 +467,64 @@ class ChatSystem {
         if (!this.messageContainer) return;
         
         const messageEl = document.createElement('div');
-        messageEl.className = 'message';
+        messageEl.className = 'message message-new';
         messageEl.setAttribute('data-message-id', message.id);
+        
+        // Add pending/confirmed state classes
+        if (message.isPending || message.status === 'pending') {
+            messageEl.classList.add('pending');
+        } else if (message.status === 'confirmed') {
+            messageEl.classList.add('confirmed');
+        }
         
         this.updateMessageElement(messageEl, message);
         this.messageContainer.appendChild(messageEl);
+        
+        // Update grouping for all messages after adding new one
+        this.updateAllMessageGrouping();
+        
+        // Remove animation class after animation completes
+        setTimeout(() => {
+            messageEl.classList.remove('message-new');
+        }, 400);
     }
 
     /**
-     * Update message element content
+     * Update message grouping for all messages - Simplified for minimal style
+     */
+    updateAllMessageGrouping() {
+        // No grouping needed for minimal terminal-style interface
+        if (!this.messageContainer) return;
+        
+        const messageElements = Array.from(this.messageContainer.querySelectorAll('.message'));
+        messageElements.forEach(messageEl => {
+            messageEl.classList.remove('grouped', 'last-in-group');
+        });
+    }
+
+    /**
+     * Update message element content - Minimal terminal-style format
      */
     updateMessageElement(messageEl, message) {
-        const statusText = this.getStatusText(message.status);
-        const statusClass = this.getStatusClass(message.status);
-        const timestamp = new Date(message.timestamp).toLocaleTimeString();
+        const timestamp = new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         
-        // Add performance info if available
-        let performanceInfo = '';
-        if (message.statusData?.executionTime) {
-            performanceInfo = ` (${message.statusData.executionTime}ms)`;
-        }
+        // Determine if this is own message or process message
+        // Messages with 'direct-push' method are our own messages
+        const isOwnMessage = message.method === 'direct-push' || message.source !== 'chat-history';
+        messageEl.classList.toggle('own-message', isOwnMessage);
+        messageEl.classList.toggle('process-message', !isOwnMessage);
         
+        // Get username, fallback to defaults
+        const username = message.author || (isOwnMessage ? 'You' : 'System');
+        
+        // Remove all grouping logic for minimal style
+        messageEl.classList.remove('grouped', 'last-in-group');
+        
+        // Format: username • timestamp: content (no status text - we use visual states)
         messageEl.innerHTML = `
-            <div class="message-meta">
-                <strong>${message.author}</strong> • 
-                ${this.config.UI.SHOW_TIMESTAMPS ? timestamp + ' • ' : ''}
-                <span class="message-status ${statusClass}">${statusText}${performanceInfo}</span>
-                ${message.slot ? ` • Slot ${message.slot}` : ''}
-            </div>
-            <div class="message-content">${this.escapeHtml(message.content)}</div>
+            <span class="message-header">
+                <span class="message-username">${this.escapeHtml(username)}</span><span class="message-separator">•</span><span class="message-timestamp">${timestamp}</span><span class="message-colon">:</span>
+            </span><span class="message-content">${this.escapeHtml(message.content)}</span>
         `;
     }
 
@@ -411,7 +535,6 @@ class ChatSystem {
         const statusTexts = {
             sending: 'Sending...',
             sent: 'Sent',
-            executed: 'Executed',
             failed: 'Failed',
             pending: 'Pending'
         };
@@ -424,12 +547,19 @@ class ChatSystem {
     getStatusClass(status) {
         const statusClasses = {
             sending: 'status-pending',
-            sent: 'status-success',
-            executed: 'status-executed',
+            sent: 'status-sent',
             failed: 'status-error',
             pending: 'status-pending'
         };
         return statusClasses[status] || '';
+    }
+
+    /**
+     * Apply message grouping - Removed for minimal style
+     */
+    applyMessageGrouping(messageEl, message) {
+        // No grouping needed for minimal terminal-style interface
+        messageEl.classList.remove('grouped', 'last-in-group');
     }
 
     /**
@@ -535,6 +665,7 @@ class ChatSystem {
      */
     clearChatHistory() {
         this.messages = [];
+        // Removed hash tracking
         if (this.messageContainer) {
             this.messageContainer.innerHTML = '';
         }
@@ -601,6 +732,7 @@ class ChatSystem {
         this.stopMessagePolling();
         this.messages = [];
         this.pendingMessages.clear();
+        // Removed hash tracking
         this.eventHandlers = {};
         this.config.log('Chat system destroyed');
     }

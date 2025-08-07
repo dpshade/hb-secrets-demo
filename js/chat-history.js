@@ -127,7 +127,7 @@ class ChatHistory {
                                 content: decodeURIComponent(content.replace(/\+/g, ' ')),
                                 reference: item.reference,
                                 slot: slot,
-                                timestamp: item.timestamp || Date.now(),
+                                timestamp: item.cache?.timestamp || item.timestamp,
                                 tags: item.tags || {},
                                 username: username
                             };
