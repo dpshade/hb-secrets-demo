@@ -4,274 +4,970 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HyperBEAM Chat</title>
-    <link rel="stylesheet" href="css/style.css">
+    
+    <!-- Load our modular components -->
+    <script src="config.js"></script>
+    <script src="js/hyperbeam-api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/chat-history.js"></script>
+    <script src="js/chat.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            background: #2563eb;
+            color: white;
+            padding: 1rem;
+            text-align: center;
+        }
+        
+        .header h1 {
+            margin-bottom: 0.25rem;
+        }
+        
+        .header p {
+            opacity: 0.9;
+            font-size: 0.9rem;
+        }
+        
+        .status {
+            padding: 0.75rem;
+            background: #e5e7eb;
+            text-align: center;
+            font-size: 0.875rem;
+            border-bottom: 1px solid #d1d5db;
+            transition: all 0.2s ease;
+        }
+        
+        .status.connected { background: #dcfce7; color: #166534; }
+        .status.error { background: #fecaca; color: #991b1b; }
+        .status.warning { background: #fef3c7; color: #92400e; }
+        
+        .container {
+            display: flex;
+            flex: 1;
+            width: 100%;
+            height: calc(100vh - 120px);
+            gap: 1px;
+            background: #e5e7eb;
+            overflow: hidden;
+        }
+        
+        .info-panel {
+            width: 350px;
+            min-width: 350px;
+            background: white;
+            padding: 1rem;
+            overflow-y: auto;
+            height: 100%;
+        }
+        
+        .info-panel h3 {
+            margin-bottom: 1rem;
+            color: #374151;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        
+        .info-section {
+            margin-bottom: 1.5rem;
+        }
+        
+        .info-section h4 {
+            margin-bottom: 0.75rem;
+            color: #6b7280;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+        
+        .info-item {
+            margin-bottom: 0.75rem;
+            font-size: 0.875rem;
+        }
+        
+        .info-label {
+            font-weight: 600;
+            color: #6b7280;
+            margin-bottom: 0.25rem;
+        }
+        
+        .info-value {
+            color: #374151;
+            font-family: monospace;
+            word-break: break-all;
+            background: #f9fafb;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.8rem;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.5rem;
+        }
+        
+        .stat-item {
+            text-align: center;
+            padding: 0.5rem;
+            background: #f9fafb;
+            border-radius: 0.375rem;
+            border: 1px solid #e5e7eb;
+        }
+        
+        .stat-value {
+            font-weight: 600;
+            color: #374151;
+            font-size: 1.1rem;
+        }
+        
+        .stat-label {
+            font-size: 0.75rem;
+            color: #6b7280;
+            text-transform: uppercase;
+        }
+        
+        .chat-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            height: 100%;
+            overflow: hidden;
+        }
+        
+        .chat-header {
+            padding: 1rem;
+            background: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .chat-title {
+            font-weight: 600;
+            color: #374151;
+        }
+        
+        .chat-controls {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .btn-small {
+            padding: 0.375rem 0.75rem;
+            font-size: 0.875rem;
+            border: 1px solid #d1d5db;
+            background: white;
+            color: #374151;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-small:hover {
+            background: #f9fafb;
+            border-color: #9ca3af;
+        }
+        
+        .messages {
+            flex: 1;
+            padding: 1rem;
+            overflow-y: auto;
+            background: #f9fafb;
+            height: calc(100% - 140px);
+        }
+        
+        .message {
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            background: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-left: 3px solid #e5e7eb;
+            transition: all 0.2s ease;
+        }
+        
+        .message.own-message {
+            border-left-color: #2563eb;
+            background: #eff6ff;
+        }
+        
+        .message.process-message {
+            border-left-color: #059669;
+            background: #ecfdf5;
+        }
+        
+        .message-meta {
+            font-size: 0.75rem;
+            color: #6b7280;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        
+        .message-author {
+            font-weight: 600;
+        }
+        
+        .message-status {
+            padding: 0.125rem 0.375rem;
+            border-radius: 0.25rem;
+            font-size: 0.7rem;
+            font-weight: 500;
+        }
+        
+        .status-pending { background: #fef3c7; color: #92400e; }
+        .status-success { background: #dcfce7; color: #166534; }
+        .status-executed { background: #ddd6fe; color: #7c3aed; }
+        .status-error { background: #fecaca; color: #991b1b; }
+        
+        .message-content {
+            color: #374151;
+            line-height: 1.5;
+            word-wrap: break-word;
+        }
+        
+        .message-timing {
+            font-size: 0.7rem;
+            color: #9ca3af;
+            margin-top: 0.25rem;
+        }
+        
+        .input-area {
+            padding: 1rem;
+            border-top: 1px solid #e5e7eb;
+            background: white;
+            min-height: 80px;
+        }
+        
+        .input-group {
+            display: flex;
+            gap: 0.5rem;
+            align-items: stretch;
+        }
+        
+        .input-wrapper {
+            flex: 1;
+            position: relative;
+        }
+        
+        input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.375rem;
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .send-button {
+            padding: 0.75rem;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 48px;
+            height: 48px;
+        }
+        
+        .send-button:hover {
+            background: #1d4ed8;
+            transform: translateX(2px);
+        }
+        
+        .send-button:active {
+            transform: translateX(4px) scale(0.95);
+        }
+        
+        .send-button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .send-button svg {
+            transition: transform 0.2s;
+        }
+        
+        .send-button:hover svg {
+            transform: scale(1.1);
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            min-width: 80px;
+        }
+        
+        button:hover {
+            background: #1d4ed8;
+        }
+        
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #6b7280;
+        }
+        
+        .welcome-message {
+            text-align: center;
+            padding: 2rem;
+            color: #6b7280;
+            background: white;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .welcome-message h4 {
+            margin-bottom: 0.5rem;
+            color: #374151;
+        }
+        
+        .auth-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            background: #f9fafb;
+            border-radius: 0.375rem;
+            margin-bottom: 1rem;
+        }
+        
+        .auth-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #dc2626;
+        }
+        
+        .auth-indicator.authenticated {
+            background: #059669;
+        }
+        
+        .error-message {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #991b1b;
+            padding: 0.75rem;
+            border-radius: 0.375rem;
+            margin: 1rem 0;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+                height: calc(100vh - 120px);
+            }
+            
+            .info-panel {
+                width: 100%;
+                min-width: unset;
+                height: 200px;
+                min-height: 200px;
+            }
+            
+            .chat-panel {
+                height: calc(100% - 200px);
+            }
+            
+            .stats-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+        
+        /* Animation for new messages */
+        @keyframes messageSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .message-new {
+            animation: messageSlideIn 0.3s ease-out;
+        }
+    </style>
 </head>
 <body>
-    <!-- Connection Status Header -->
-    <div class="connection-header">
-        <div class="connection-status">
-            <div id="auth-indicator" class="status-indicator offline" role="status" aria-label="Authentication status">
-                <span class="status-dot" aria-hidden="true"></span>
-                <span id="auth-text">HyperBEAM Disconnected</span>
-            </div>
-            <div id="user-address" class="user-address hidden"></div>
-        </div>
+    <div class="header">
+        <h1>HyperBEAM Chat</h1>
+        <p>Live Chat with AO Process Integration</p>
     </div>
-
-    <div class="app-container">
-        <!-- Auth Panel (Left) -->
-        <div class="auth-builder-panel">
-            <div class="panel-header">
-                <div class="panel-icon">
-                    <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
-                    </svg>
+    
+    <div class="status" id="status">
+        Initializing...
+    </div>
+    
+    <div class="container">
+        <!-- Info Panel -->
+        <div class="info-panel">
+            <h3>System Status</h3>
+            
+            <!-- Authentication Status -->
+            <div class="info-section">
+                <h4>Authentication</h4>
+                <div class="auth-status" id="auth-status">
+                    <div class="auth-indicator" id="auth-indicator"></div>
+                    <span id="auth-text">Not connected</span>
                 </div>
-                <h2>Authentication</h2>
-                <button class="configure-btn">Configure</button>
+                <div class="info-item">
+                    <div class="info-label">Username:</div>
+                    <input type="text" id="username-input" placeholder="Enter your username..." 
+                           style="width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.25rem; font-size: 0.875rem; margin-top: 0.25rem;">
+                </div>
             </div>
             
-            <div class="auth-tabs" role="tablist" aria-label="Authentication methods">
-                <button class="auth-tab active" data-tab="generate" role="tab" aria-controls="generate-tab" aria-selected="true" tabindex="0">Generate</button>
-                <button class="auth-tab" data-tab="import" role="tab" aria-controls="import-tab" aria-selected="false" tabindex="-1">Import</button>
-                <button class="auth-tab" data-tab="basic" role="tab" aria-controls="basic-tab" aria-selected="false" tabindex="-1">Basic Auth</button>
-                <button class="auth-tab" data-tab="wallets" role="tab" aria-controls="wallets-tab" aria-selected="false" tabindex="-1">Wallets</button>
+            <!-- Connection Info -->
+            <div class="info-section">
+                <h4>Connection</h4>
+                <div class="info-item">
+                    <div class="info-label">HyperBEAM Node:</div>
+                    <div class="info-value" id="node-url">Loading...</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Process ID:</div>
+                    <div class="info-value" id="process-id">Loading...</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Current Slot:</div>
+                    <div class="info-value" id="current-slot">-</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Wallet Address:</div>
+                    <div class="info-value" id="wallet-address">Generating...</div>
+                </div>
             </div>
-
-            <div class="auth-tab-content">
-                <!-- Generate Wallet Tab -->
-                <div id="generate-tab" class="tab-panel active" role="tabpanel" aria-labelledby="generate-tab-button">
-                    <div class="auth-welcome">
-                        <h3>Generate New Wallet</h3>
-                        <p class="auth-description">Create a new wallet for secure authentication</p>
+            
+            <!-- Statistics -->
+            <div class="info-section">
+                <h4>Statistics</h4>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-sent">0</div>
+                        <div class="stat-label">Sent</div>
                     </div>
-                    
-                    <div class="storage-options">
-                        <label class="storage-label">Storage Mode:</label>
-                        <div class="storage-tabs" role="tablist" aria-label="Storage options">
-                            <button class="storage-tab active" data-persist="in-memory" role="tab" aria-selected="true">
-                                <div class="storage-tab-content">
-                                    <div class="storage-tab-title">Temporary</div>
-                                    <div class="storage-tab-desc">Session only</div>
-                                </div>
-                            </button>
-                            <button class="storage-tab" data-persist="client" role="tab" aria-selected="false">
-                                <div class="storage-tab-content">
-                                    <div class="storage-tab-title">Local</div>
-                                    <div class="storage-tab-desc">Browser storage</div>
-                                </div>
-                            </button>
-                            <button class="storage-tab" data-persist="non-volatile" role="tab" aria-selected="false">
-                                <div class="storage-tab-content">
-                                    <div class="storage-tab-title">Saved</div>
-                                    <div class="storage-tab-desc">Server storage</div>
-                                </div>
-                            </button>
-                        </div>
-                        <div class="storage-description">
-                            <div class="storage-desc-content" data-persist="in-memory">
-                                <strong>Temporary:</strong> Wallet lost when session ends.
-                            </div>
-                            <div class="storage-desc-content hidden" data-persist="client">
-                                <strong>Local:</strong> Wallet stored in your browser.
-                            </div>
-                            <div class="storage-desc-content hidden" data-persist="non-volatile">
-                                <strong>Saved:</strong> Wallet stored on server permanently.
-                            </div>
-                        </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-executed">0</div>
+                        <div class="stat-label">Executed</div>
                     </div>
-                    
-                    <button id="generate-wallet-btn" class="btn primary">Generate Wallet</button>
-                </div>
-
-                <!-- Import Wallet Tab -->
-                <div id="import-tab" class="tab-panel" role="tabpanel" aria-labelledby="import-tab-button">
-                    <div class="auth-welcome">
-                        <h3>Import Existing Wallet</h3>
-                        <p class="auth-description">Import your existing wallet using your private key or mnemonic phrase.</p>
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-received">0</div>
+                        <div class="stat-label">Received</div>
                     </div>
-                    
-                    <div class="auth-option-card">
-                        <div class="option-header">
-                            <svg class="option-icon" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
-                            </svg>
-                            <div class="option-content">
-                                <div class="option-title">Import from Private Key</div>
-                            </div>
-                        </div>
-                        <p class="option-description">Enter your existing private key to restore wallet access.</p>
-                    </div>
-                    
-                    <input type="password" id="private-key-input" placeholder="Enter your private key..." />
-                    
-                    <details class="advanced-options">
-                        <summary>Advanced Import Options</summary>
-                        <div class="advanced-content">
-                            <label for="mnemonic-input">Mnemonic Phrase:</label>
-                            <textarea id="mnemonic-input" placeholder="Enter your 12 or 24 word mnemonic phrase..."></textarea>
-                            <label for="wallet-json">Wallet JSON (Legacy):</label>
-                            <textarea id="wallet-json" placeholder="Paste your wallet JSON data..."></textarea>
-                        </div>
-                    </details>
-                    
-                    <button id="import-wallet-btn" class="btn primary">Import Wallet</button>
-                </div>
-
-                <!-- Basic Auth Tab -->
-                <div id="basic-tab" class="tab-panel" role="tabpanel" aria-labelledby="basic-tab-button">
-                    <div class="auth-welcome">
-                        <h3>Deterministic Wallet Authentication</h3>
-                        <p class="auth-description">Use HTTP Basic Authentication to access your deterministic wallet. Same credentials always generate the same wallet address.</p>
-                    </div>
-                    
-                    <div class="auth-option-card">
-                        <div class="option-header">
-                            <svg class="option-icon" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M12,17A2,2 0 0,0 14,15C14,13.89 13.1,13 12,13A2,2 0 0,0 10,15A2,2 0 0,0 12,17M18,8A2,2 0 0,1 20,10V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V10C4,8.89 4.9,8 6,8H7V6A5,5 0 0,1 12,1A5,5 0 0,1 17,6V8H18M12,3A3,3 0 0,0 9,6V8H15V6A3,3 0 0,0 12,3Z" />
-                            </svg>
-                            <div class="option-content">
-                                <div class="option-title">Deterministic Wallet Access</div>
-                            </div>
-                        </div>
-                        <p class="option-description">Your credentials are used with PBKDF2 key derivation to deterministically generate the same wallet every time. No wallet files needed.</p>
-                    </div>
-                    
-                    <input type="text" id="username-input" placeholder="Username" />
-                    <input type="password" id="password-input" placeholder="Password" />
-                    
-                    <button id="basic-auth-btn" class="btn primary">Connect</button>
-                </div>
-
-                <!-- Wallets Tab -->
-                <div id="wallets-tab" class="tab-panel" role="tabpanel" aria-labelledby="wallets-tab-button">
-                    <div class="auth-welcome">
-                        <h3>Manage Stored Wallets</h3>
-                        <p class="auth-description">View and manage wallets stored on the HyperBEAM node. Export, sync, or switch between different wallets.</p>
-                    </div>
-                    
-                    <div class="wallet-actions">
-                        <button id="refresh-wallets-btn" class="btn secondary small">Refresh List</button>
-                        <button id="export-wallets-btn" class="btn secondary small">Export All</button>
-                        <button id="sync-wallets-btn" class="btn secondary small">Sync from Peer</button>
-                    </div>
-                    
-                    <div id="wallets-loading" class="wallets-loading hidden">
-                        <div class="loading-spinner"></div>
-                        <span>Loading wallets...</span>
-                    </div>
-                    
-                    <div id="wallets-list" class="wallets-list">
-                        <div class="no-wallets-message">
-                            <p>No stored wallets found. Generate or import a wallet to get started.</p>
-                        </div>
-                    </div>
-                    
-                    <div class="sync-options" style="display: none;">
-                        <details class="advanced-options">
-                            <summary>Sync from Peer Node</summary>
-                            <div class="advanced-content">
-                                <label for="peer-node-input">Peer Node URL:</label>
-                                <input type="url" id="peer-node-input" placeholder="https://peer.hyperbeam.network" />
-                                <button id="sync-from-peer-btn" class="btn primary">Sync Wallets</button>
-                            </div>
-                        </details>
+                    <div class="stat-item">
+                        <div class="stat-value" id="stat-pending">0</div>
+                        <div class="stat-label">Pending</div>
                     </div>
                 </div>
             </div>
-
-            <!-- Connected Summary (shown when authenticated) -->
-            <div class="connected-summary">
-                <div class="status-indicator online">
-                    <span class="status-dot"></span>
-                    <span>Connected</span>
+            
+            <!-- Performance Metrics -->
+            <div class="info-section">
+                <h4>Performance</h4>
+                <div class="info-item">
+                    <div class="info-label">Success Rate:</div>
+                    <div class="info-value" id="success-rate">-</div>
                 </div>
-                <div class="user-info">
-                    <div class="label">Wallet Address</div>
-                    <div class="value" id="connected-address"></div>
+                <div class="info-item">
+                    <div class="info-label">Avg Response Time:</div>
+                    <div class="info-value" id="avg-response-time">-</div>
                 </div>
-                <button id="connected-disconnect-btn" class="btn danger small">Disconnect</button>
+                <div class="info-item">
+                    <div class="info-label">Total Requests:</div>
+                    <div class="info-value" id="total-requests">0</div>
+                </div>
             </div>
         </div>
-
-        <!-- Chat Panel (Right) -->
+        
+        <!-- Chat Panel -->
         <div class="chat-panel">
-            <div class="panel-header">
-                <div class="panel-icon">
-                    <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clip-rule="evenodd" />
-                    </svg>
-                </div>
-                <h2>HyperBEAM Chat</h2>
-                <div class="chat-tabs" role="tablist" aria-label="Chat view options">
-                    <button class="chat-tab active" role="tab" aria-selected="true">Messages</button>
-                    <button class="chat-tab" role="tab" aria-selected="false">Users</button>
-                    <button class="chat-tab" role="tab" aria-selected="false">Settings</button>
+            <div class="chat-header">
+                <div class="chat-title">Live Chat History</div>
+                <div class="chat-controls">
+                    <button class="btn-small" id="load-more-btn">Load More History</button>
+                    <button class="btn-small" id="refresh-btn">Refresh</button>
+                    <button class="btn-small" id="clear-chat">Clear</button>
                 </div>
             </div>
-
-            <div class="chat-status-banner" role="status" aria-live="polite">
-                <span class="status-dot online" aria-hidden="true"></span>
-                <span>Connected to HyperBEAM Network</span>
-            </div>
-
-            <!-- Chat Interface -->
-            <div id="chat-interface" class="chat-interface hidden">
-                <div id="messages-container" class="messages-container" role="log" aria-live="polite" aria-label="Chat messages">
-                    <div class="message-loading">Loading messages...</div>
+            
+            <div class="messages" id="messages">
+                <div class="welcome-message">
+                    <h4>HyperBEAM Chat</h4>
+                    <p>Send messages to the AO process using the paper airplane button or press Enter.<br>
+                    Chat history loads automatically and persists across browser refreshes.</p>
                 </div>
-
-                <div class="message-input-container">
-                    <div class="input-group">
-                        <input type="text" id="message-input" placeholder="Type your message..." maxlength="500" aria-label="Message input" aria-describedby="char-count">
-                        <button id="send-btn" class="btn primary send-btn">Send</button>
+            </div>
+            
+            <div class="input-area">
+                <div class="input-group">
+                    <div class="input-wrapper">
+                        <input 
+                            type="text" 
+                            id="message-input" 
+                            placeholder="Type your message..."
+                            maxlength="280"
+                            autofocus
+                        >
                     </div>
-                    <div class="input-info">
-                        <span id="char-count" aria-live="polite">0/500</span>
-                        <button id="disconnect-btn" class="btn danger small">Disconnect</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Welcome State -->
-            <div id="welcome-state" class="welcome-state">
-                <div class="system-badge">SYSTEM</div>
-                <div class="system-ready">Ready</div>
-                <div class="welcome-content">
-                    <div class="welcome-icon">
-                        <svg class="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M12 2L13.09 8.26L22 9L13.09 9.74L12 16L10.91 9.74L2 9L10.91 8.26L12 2Z" />
+                    <button id="send-btn" class="send-button" type="button">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M2.01 21L23 12 2.01 3 2 10L17 12 2 14L2.01 21Z" fill="currentColor"/>
                         </svg>
-                    </div>
-                    <p>Welcome to HyperBEAM Chat! Join the decentralized conversation where your messages are cryptographically signed and permanent.</p>
-                    <p>Choose an authentication method on the left to start chatting!</p>
+                    </button>
                 </div>
             </div>
         </div>
     </div>
-
-    <!-- Status Messages -->
-    <div id="status-messages" class="status-messages"></div>
-
-    <!-- Configuration -->
-    <script src="config.js"></script>
-    
-    <!-- Core Scripts -->
-    <script src="js/hyperbeam-api.js"></script>
-    <script src="js/auth.js"></script>  
-    <script src="js/chat.js"></script>
-    <script src="js/ui-tabs.js"></script>
 
     <script>
-        // Initialize the application
+        /**
+         * Complete HyperBEAM Chat Application
+         * Integrates all modular components for a full-featured chat experience
+         */
+        class HyperBEAMChatApp {
+            constructor() {
+                this.api = null;
+                this.auth = null;
+                this.chat = null;
+                this.isInitialized = false;
+                
+                // UI references
+                this.elements = {};
+                
+                // Statistics
+                this.stats = {
+                    sent: 0,
+                    executed: 0,
+                    received: 0,
+                    pending: 0
+                };
+                
+                // Pagination
+                this.pagination = {
+                    currentPage: 0,
+                    messagesPerPage: 75,
+                    maxHistorySlots: 25,
+                    hasMoreHistory: true
+                };
+                
+                this.initialize();
+            }
+            
+            async initialize() {
+                try {
+                    // Validate configuration
+                    CONFIG.validate();
+                    
+                    // Get UI element references
+                    this.getUIReferences();
+                    
+                    // Initialize components
+                    await this.initializeComponents();
+                    
+                    // Set up event listeners
+                    this.setupEventListeners();
+                    
+                    // Start periodic updates
+                    this.startPeriodicUpdates();
+                    
+                    this.updateStatus('System initialized successfully', 'connected');
+                    this.isInitialized = true;
+                    
+                } catch (error) {
+                    console.error('Failed to initialize chat app:', error);
+                    this.updateStatus(`Initialization failed: ${error.message}`, 'error');
+                    this.showError(error.message);
+                }
+            }
+            
+            getUIReferences() {
+                const ids = [
+                    'status', 'messages', 'message-input', 'send-btn', 'clear-chat', 'refresh-btn', 'load-more-btn', 'auth-status',
+                    'auth-indicator', 'auth-text', 'node-url', 'process-id',
+                    'current-slot', 'wallet-address', 'stat-sent', 'stat-executed',
+                    'stat-received', 'stat-pending', 'success-rate', 'avg-response-time',
+                    'total-requests'
+                ];
+                
+                ids.forEach(id => {
+                    this.elements[id] = document.getElementById(id);
+                    if (!this.elements[id]) {
+                        console.warn(`Element with id '${id}' not found`);
+                    }
+                });
+            }
+            
+            async initializeComponents() {
+                // Initialize API client
+                this.api = new HyperBEAMAPI(CONFIG);
+                CONFIG.log('HyperBEAM API initialized');
+                
+                // Initialize authentication system
+                this.auth = new AuthSystem(this.api);
+                CONFIG.log('Authentication system initialized');
+                
+                // Initialize chat system with pagination
+                this.chat = new ChatSystem(this.api, this.auth);
+                this.chat.initialize(
+                    this.elements.messages,
+                    (message, type) => this.updateStatus(message, type)
+                );
+                
+                // Set initial pagination parameters
+                this.chat.chatHistory.maxSlots = this.pagination.maxHistorySlots;
+                CONFIG.log('Chat system initialized');
+                
+                // Set up chat event listeners
+                this.chat.on('messageSent', (data) => this.onMessageSent(data));
+                this.chat.on('messageReceived', (data) => this.onMessageReceived(data));
+                this.chat.on('executionComplete', (data) => this.onExecutionComplete(data));
+                this.chat.on('statusUpdate', (data) => this.updateStatus(data.message, data.type));
+                
+                // Update UI with initial configuration
+                this.updateConnectionInfo();
+                
+                // Attempt authentication
+                await this.attemptAuthentication();
+            }
+            
+            setupEventListeners() {
+                // Control buttons
+                this.elements['clear-chat'].addEventListener('click', () => this.clearChat());
+                this.elements['refresh-btn'].addEventListener('click', () => this.refreshChat());
+                this.elements['load-more-btn'].addEventListener('click', () => this.loadMoreHistory());
+                
+                // Send message functionality
+                this.elements['send-btn'].addEventListener('click', () => this.sendMessage());
+                this.elements['message-input'].addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        this.sendMessage();
+                    }
+                });
+                
+                // Auth status updates
+                window.addEventListener('hyperbeam-auth-success', (e) => {
+                    this.updateAuthStatus(true, e.detail);
+                });
+                
+                window.addEventListener('hyperbeam-auth-signout', () => {
+                    this.updateAuthStatus(false);
+                });
+                
+                CONFIG.log('Event listeners set up');
+            }
+            
+            async attemptAuthentication() {
+                this.updateStatus('Attempting authentication...', '');
+                
+                try {
+                    const result = await this.auth.autoAuthenticate();
+                    
+                    if (result.success) {
+                        this.updateAuthStatus(true, result);
+                        this.updateStatus(`Authenticated using ${result.method}`, 'connected');
+                        
+                        if (result.walletAddress) {
+                            this.elements['wallet-address'].textContent = 
+                                result.walletAddress.substring(0, 20) + '...';
+                        }
+                    } else {
+                        this.updateAuthStatus(false);
+                        this.updateStatus('Authentication failed - will retry on first message', 'warning');
+                    }
+                } catch (error) {
+                    console.error('Authentication error:', error);
+                    this.updateAuthStatus(false);
+                    this.updateStatus('Authentication error - will retry on first message', 'warning');
+                }
+            }
+            
+            async sendMessage() {
+                const input = this.elements['message-input'];
+                const message = input.value.trim();
+                
+                if (!message) return;
+                
+                const sendBtn = this.elements['send-btn'];
+                
+                // Disable input during send
+                sendBtn.disabled = true;
+                input.disabled = true;
+                
+                try {
+                    // Authenticate if not already authenticated
+                    if (!this.auth.isAuthenticated()) {
+                        this.updateStatus('Authenticating...', '');
+                        const authResult = await this.auth.autoAuthenticate();
+                        
+                        if (!authResult.success) {
+                            throw new Error('Authentication failed: ' + authResult.error);
+                        }
+                        
+                        this.updateAuthStatus(true, authResult);
+                    }
+                    
+                    // Send message
+                    const result = await this.chat.sendMessage(message, { method: 'direct-push' });
+                    
+                    if (result.success) {
+                        input.value = '';
+                        this.stats.sent++;
+                        this.updateStats();
+                    } else {
+                        throw new Error(result.error || 'Send failed');
+                    }
+                    
+                } catch (error) {
+                    console.error('Send message error:', error);
+                    this.updateStatus(`Send failed: ${error.message}`, 'error');
+                    this.showError(error.message);
+                } finally {
+                    sendBtn.disabled = false;
+                    input.disabled = false;
+                    input.focus();
+                }
+            }
+            
+            
+            updateConnectionInfo() {
+                this.elements['node-url'].textContent = CONFIG.HYPERBEAM_NODE;
+                this.elements['process-id'].textContent = 
+                    CONFIG.PROCESS_ID.substring(0, 20) + '...';
+            }
+            
+            updateAuthStatus(authenticated, authData = {}) {
+                const indicator = this.elements['auth-indicator'];
+                const text = this.elements['auth-text'];
+                
+                if (authenticated) {
+                    indicator.classList.add('authenticated');
+                    text.textContent = `Connected (${authData.method || 'unknown'})`;
+                    
+                    if (authData.walletAddress) {
+                        this.elements['wallet-address'].textContent = 
+                            authData.walletAddress.substring(0, 20) + '...';
+                    }
+                } else {
+                    indicator.classList.remove('authenticated');
+                    text.textContent = 'Not authenticated';
+                }
+            }
+            
+            
+            onMessageSent(data) {
+                this.stats.sent++;
+                this.updateStats();
+                CONFIG.debug('Message sent:', data);
+            }
+            
+            onMessageReceived(data) {
+                this.stats.received++;
+                this.updateStats();
+                CONFIG.debug('Message received:', data);
+            }
+            
+            onExecutionComplete(data) {
+                this.stats.executed++;
+                this.stats.pending = Math.max(0, this.stats.pending - 1);
+                this.updateStats();
+                CONFIG.debug('Execution complete:', data);
+            }
+            
+            updateStats() {
+                this.elements['stat-sent'].textContent = this.stats.sent;
+                this.elements['stat-executed'].textContent = this.stats.executed;
+                this.elements['stat-received'].textContent = this.stats.received;
+                this.elements['stat-pending'].textContent = this.stats.pending;
+            }
+            
+            updatePerformanceMetrics() {
+                if (this.api) {
+                    const metrics = this.api.getPerformanceMetrics();
+                    this.elements['success-rate'].textContent = metrics.successRate;
+                    this.elements['avg-response-time'].textContent = 
+                        `${metrics.averageResponseTime.toFixed(1)}ms`;
+                    this.elements['total-requests'].textContent = metrics.totalRequests;
+                }
+            }
+            
+            async updateCurrentSlot() {
+                try {
+                    const slot = await this.api.getCurrentSlot();
+                    if (slot !== null) {
+                        this.elements['current-slot'].textContent = slot;
+                    }
+                } catch (error) {
+                    CONFIG.debug('Failed to update current slot:', error);
+                }
+            }
+            
+            clearChat() {
+                if (confirm('Clear all chat messages?')) {
+                    this.chat.clearChatHistory();
+                    this.stats = { sent: 0, executed: 0, received: 0, pending: 0 };
+                    this.updateStats();
+                    this.updateStatus('Chat cleared', 'connected');
+                }
+            }
+            
+            refreshChat() {
+                this.chat.checkForNewMessages();
+                this.updatePerformanceMetrics();
+                this.updateCurrentSlot();
+                this.updateStatus('Chat refreshed', 'connected');
+            }
+            
+            async loadMoreHistory() {
+                const loadBtn = this.elements['load-more-btn'];
+                
+                try {
+                    loadBtn.disabled = true;
+                    loadBtn.textContent = 'Loading...';
+                    this.updateStatus('Loading more history...', '');
+                    
+                    // Increase the page count and load more messages
+                    this.pagination.currentPage++;
+                    const startSlot = Math.max(1, (this.pagination.currentPage * this.pagination.maxHistorySlots) + 1);
+                    const endSlot = Math.min(await this.api.getCurrentSlot(), startSlot + this.pagination.maxHistorySlots);
+                    
+                    if (startSlot <= endSlot) {
+                        const historyMessages = await this.chat.chatHistory.getAllChatHistory(this.pagination.maxHistorySlots);
+                        
+                        if (historyMessages.length > 0) {
+                            // Get only the new messages for this page
+                            const newMessages = historyMessages.slice(-this.pagination.messagesPerPage);
+                            
+                            for (const historyMessage of newMessages) {
+                                await this.chat.processHistoryMessage(historyMessage);
+                            }
+                            
+                            this.stats.received += newMessages.length;
+                            this.updateStats();
+                            this.updateStatus(`Loaded ${newMessages.length} more messages`, 'connected');
+                        } else {
+                            this.pagination.hasMoreHistory = false;
+                            loadBtn.style.display = 'none';
+                            this.updateStatus('No more history available', 'connected');
+                        }
+                    } else {
+                        this.pagination.hasMoreHistory = false;
+                        loadBtn.style.display = 'none';
+                        this.updateStatus('No more history available', 'connected');
+                    }
+                    
+                } catch (error) {
+                    console.error('Load more history error:', error);
+                    this.updateStatus(`Failed to load history: ${error.message}`, 'error');
+                } finally {
+                    loadBtn.disabled = false;
+                    loadBtn.textContent = 'Load More History';
+                }
+            }
+            
+            startPeriodicUpdates() {
+                // Update performance metrics every 5 seconds
+                setInterval(() => {
+                    this.updatePerformanceMetrics();
+                    this.updateCurrentSlot();
+                }, 5000);
+                
+                CONFIG.log('Periodic updates started');
+            }
+            
+            updateStatus(message, type = '') {
+                const statusEl = this.elements.status;
+                statusEl.textContent = message;
+                statusEl.className = `status ${type}`;
+                
+                CONFIG.debug(`Status: ${message} (${type})`);
+            }
+            
+            showError(message) {
+                // Create or update error message element
+                let errorEl = document.querySelector('.error-message');
+                if (!errorEl) {
+                    errorEl = document.createElement('div');
+                    errorEl.className = 'error-message';
+                    this.elements.messages.appendChild(errorEl);
+                }
+                
+                errorEl.innerHTML = `
+                    <strong>Error:</strong> ${message}
+                    <button onclick="this.parentElement.remove()" style="float: right; background: none; border: none; color: inherit; cursor: pointer;">×</button>
+                `;
+                
+                // Auto-remove after 10 seconds
+                setTimeout(() => {
+                    if (errorEl.parentElement) {
+                        errorEl.remove();
+                    }
+                }, 10000);
+                
+                this.chat.scrollToBottom();
+            }
+        }
+        
+        // Initialize application when DOM is ready
         document.addEventListener('DOMContentLoaded', () => {
-            // Initialize authentication system
-            Auth.init();
-            
-            // Initialize chat system
-            Chat.init();
-            
-            console.log('HyperBEAM Chat initialized');
+            CONFIG.log('DOM loaded, initializing HyperBEAM Chat App');
+            window.chatApp = new HyperBEAMChatApp();
+        });
+        
+        // Handle page visibility changes
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && window.chatApp && window.chatApp.isInitialized) {
+                // Refresh when page becomes visible
+                setTimeout(() => {
+                    window.chatApp.refreshChat();
+                }, 1000);
+            }
         });
     </script>
 </body>
