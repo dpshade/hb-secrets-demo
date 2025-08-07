@@ -14,8 +14,8 @@ const CONFIG = {
     ],
     
     // AO Process Configuration
-    PROCESS_ID: 'JjDto5NuigOsVSW48SbapD9OgZOxQAhw56HiMv4qO8k',
-    CHAT_PROCESS_ID: 'JjDto5NuigOsVSW48SbapD9OgZOxQAhw56HiMv4qO8k',
+    PROCESS_ID: '08ATSzAzk2yP8VCeCZ_NH85nVkixWlZ_CsPxD6l0BSQ',
+    CHAT_PROCESS_ID: '08ATSzAzk2yP8VCeCZ_NH85nVkixWlZ_CsPxD6l0BSQ',
     
     // API Endpoints
     ENDPOINTS: {
