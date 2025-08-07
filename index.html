@@ -311,12 +311,13 @@
         /* Messages Area - Minimal Terminal Style */
         .messages {
             flex: 1;
-            padding: var(--space-4);
+            padding: var(--space-4) var(--space-4) var(--space-2) var(--space-4);
             overflow-y: auto;
             background: var(--background-white);
             height: calc(100% - 140px);
             display: flex;
             flex-direction: column;
+            justify-content: flex-end;
             gap: 0;
             font-family: var(--font-family);
         }
@@ -736,7 +737,88 @@
             margin-top: var(--space-1);
         }
         
-        /* Minimal Welcome Message - Terminal Style */
+        /* Sticky Welcome Banner */
+        .welcome-banner {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: var(--light-panel);
+            border: 1px solid var(--border-gray);
+            border-radius: var(--border-radius);
+            margin: var(--space-2);
+            padding: var(--space-3);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: var(--space-2);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+
+        .welcome-banner.hidden {
+            display: none;
+        }
+
+        .welcome-content {
+            flex: 1;
+        }
+
+        .welcome-banner h4 {
+            margin: 0 0 var(--space-1) 0;
+            color: var(--primary-black);
+            font-size: var(--font-size-body);
+            font-weight: var(--font-weight-medium);
+        }
+
+        .welcome-banner p {
+            margin: 0;
+            color: var(--gray-600);
+            font-size: var(--font-size-body);
+            line-height: 1.5;
+        }
+
+        .welcome-banner .highlight {
+            color: var(--accent-orange);
+            font-weight: var(--font-weight-medium);
+        }
+
+        .close-banner {
+            background: none !important;
+            border: none !important;
+            color: var(--gray-400);
+            font-size: 16px;
+            line-height: 1;
+            cursor: pointer;
+            padding: 0 !important;
+            margin: 0;
+            min-width: unset !important;
+            width: auto !important;
+            height: auto !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            transition: color 0.2s ease;
+            flex-shrink: 0;
+            transform: none !important;
+        }
+
+        .close-banner:hover {
+            color: var(--gray-600);
+            background: none !important;
+            box-shadow: none !important;
+            transform: none !important;
+        }
+
+        .close-banner:focus {
+            outline: none !important;
+            background: none !important;
+            box-shadow: none !important;
+        }
+
+        .close-banner::before {
+            display: none !important;
+        }
+
+        /* Minimal Welcome Message - Terminal Style (fallback) */
         .welcome-message {
             text-align: left;
             padding: var(--space-4) 0;
@@ -1120,12 +1202,15 @@
                 <div class="chat-title">Live Chat History</div>
             </div>
             
-            <div class="messages" id="messages">
-                <div class="welcome-message">
+            <div class="welcome-banner" id="welcome-banner">
+                <div class="welcome-content">
                     <h4>Welcome to HyperBEAM Chat.</h4>
-                    <p>Ready to chat with AO processes on the decentralized web. <span class="highlight">Type your message</span> and press Enter or click the rocket.<br>
-                    Chat history loads automatically. Let's build something great!</p>
+                    <p>Ready to chat with AO processes on the decentralized web. <span class="highlight">Type your message</span> and press Enter or click the rocket. Chat history loads automatically. Let's build something great!</p>
                 </div>
+                <button class="close-banner" onclick="dismissWelcomeBanner()" title="Dismiss welcome message">×</button>
+            </div>
+            
+            <div class="messages" id="messages">
             </div>
             
             <div class="input-area">
@@ -1175,8 +1260,8 @@
                 // Pagination
                 this.pagination = {
                     currentPage: 0,
-                    messagesPerPage: 75,
-                    maxHistorySlots: 25,
+                    messagesPerPage: 90,
+                    maxHistorySlots: 40,
                     hasMoreHistory: true
                 };
                 
@@ -1585,6 +1670,9 @@
         document.addEventListener('DOMContentLoaded', () => {
             CONFIG.log('DOM loaded, initializing HyperBEAM Chat App');
             
+            // Check welcome banner preference
+            checkWelcomeBannerPreference();
+            
             // Add typing indicator to input
             const messageInput = document.getElementById('message-input');
             const inputWrapper = messageInput?.parentElement;
@@ -1601,7 +1689,7 @@
                 // Add playful placeholder rotation
                 const placeholders = [
                     "What's on your mind? 💭",
-                    "Ready to chat with AO? 🤖",
+                    "Ready to chat with HyperBEAM? 🤖",
                     "Share your thoughts... 🌟",
                     "Type something awesome!",
                     "What shall we build today?"
@@ -1630,6 +1718,30 @@
             window.chatApp = new HyperBEAMChatApp();
         });
         
+        // Welcome banner dismiss functionality
+        function dismissWelcomeBanner() {
+            const banner = document.getElementById('welcome-banner');
+            if (banner) {
+                banner.style.transform = 'translateY(-100%)';
+                banner.style.opacity = '0';
+                setTimeout(() => {
+                    banner.classList.add('hidden');
+                    // Remember user's preference
+                    localStorage.setItem('hyperbeam-welcome-dismissed', 'true');
+                }, 300);
+            }
+        }
+
+        function checkWelcomeBannerPreference() {
+            const dismissed = localStorage.getItem('hyperbeam-welcome-dismissed');
+            if (dismissed === 'true') {
+                const banner = document.getElementById('welcome-banner');
+                if (banner) {
+                    banner.classList.add('hidden');
+                }
+            }
+        }
+
         // Helper function for copy to clipboard with delightful feedback
         function copyToClipboard(text, label = 'Text') {
             if (!text || text === 'Loading...' || text === '-' || text === 'Generating...') {
@@ -1639,7 +1751,7 @@
             navigator.clipboard.writeText(text).then(() => {
                 // Create temporary success indicator
                 const indicator = document.createElement('div');
-                indicator.innerHTML = `✅ ${label} copied!`;
+                indicator.innerHTML = `${label} copied!`;
                 indicator.style.cssText = `
                     position: fixed;
                     top: 20px;

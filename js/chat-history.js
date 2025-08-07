@@ -174,7 +174,7 @@ class ChatHistory {
         return [];
     }
 
-    async getAllChatHistory(maxSlots = 25, startFromSlot = null) {
+    async getAllChatHistory(maxSlots = 40, startFromSlot = null) {
         if (this.isLoading) return [];
         
         this.isLoading = true;
@@ -226,7 +226,7 @@ class ChatHistory {
             const messages = [];
             
             // Check last few slots for recent messages
-            for (let slot = Math.max(1, currentSlot - 10); slot <= currentSlot; slot++) {
+            for (let slot = Math.max(1, currentSlot - 20); slot <= currentSlot; slot++) {
                 const slotMessages = await this.getMessagesFromSlot(slot);
                 messages.push(...slotMessages);
             }
