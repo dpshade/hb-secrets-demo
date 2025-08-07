@@ -1,0 +1,13 @@
+{
+  "name": "hyperbeam-chat",
+  "private": true,
+  "scripts": {
+    "dev": "bun --hot server.js"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
