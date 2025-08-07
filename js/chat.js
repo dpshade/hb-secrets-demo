@@ -38,6 +38,7 @@ class ChatSystem {
             error: []
         };
         
+        
         this.config.log('Chat system initialized');
     }
 
@@ -201,6 +202,9 @@ class ChatSystem {
                     await this.checkSlotForMessages(slot);
                 }
                 
+                // Also refresh chat history to catch any missed messages
+                await this.refreshLatestHistory();
+                
                 this.lastKnownSlot = currentSlot;
                 
                 // Update any pending messages that might have executed
@@ -267,12 +271,13 @@ class ChatSystem {
     async processHistoryMessage(historyMessage) {
         this.config.debug(`Processing history message from slot ${historyMessage.slot}:`, historyMessage.content);
 
-        // Try to extract username from message metadata or content
+        // Extract username from message metadata/tags (now properly stored by AO process)
         let username = 'Chat User'; // Default username
         
-        // If the message has metadata/tags, try to extract username
         if (historyMessage.tags && historyMessage.tags.username) {
             username = historyMessage.tags.username;
+        } else if (historyMessage.tags && historyMessage.tags.Username) {
+            username = historyMessage.tags.Username;
         } else if (historyMessage.username) {
             username = historyMessage.username;
         }
@@ -501,6 +506,28 @@ class ChatSystem {
         
         // Reload history
         await this.loadChatHistory();
+    }
+    
+    /**
+     * Refresh only the latest messages (more efficient for slot advancement)
+     */
+    async refreshLatestHistory() {
+        try {
+            // Get the latest few slots worth of messages
+            const latestMessages = await this.chatHistory.getLatestMessages(5);
+            
+            // Process any new messages we haven't seen yet
+            for (const historyMessage of latestMessages) {
+                const messageId = `history-${historyMessage.slot}-${historyMessage.reference}`;
+                
+                // Check if we already have this message
+                if (!this.messages.find(m => m.id === messageId)) {
+                    await this.processHistoryMessage(historyMessage);
+                }
+            }
+        } catch (error) {
+            this.config.debug('Error refreshing latest history:', error);
+        }
     }
 
     /**

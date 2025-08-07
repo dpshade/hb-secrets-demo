@@ -12,6 +12,7 @@ class HyperBEAMAPI {
         this.authHeaders = new Map();
         this.requestCount = 0;
         this.lastSlot = null;
+        this.currentNodeIndex = 0; // Track which node we're using
         
         // Performance tracking
         this.performanceMetrics = {
@@ -26,15 +27,39 @@ class HyperBEAMAPI {
     }
 
     /**
+     * Get current node URL with fallback support
+     */
+    getCurrentNodeUrl() {
+        if (this.currentNodeIndex === 0) {
+            return this.config.HYPERBEAM_NODE;
+        } else {
+            const backupIndex = this.currentNodeIndex - 1;
+            return this.config.BACKUP_NODES[backupIndex] || this.config.HYPERBEAM_NODE;
+        }
+    }
+
+    /**
+     * Try next backup node
+     */
+    switchToNextNode() {
+        const totalNodes = 1 + (this.config.BACKUP_NODES?.length || 0);
+        this.currentNodeIndex = (this.currentNodeIndex + 1) % totalNodes;
+        const newNodeUrl = this.getCurrentNodeUrl();
+        this.config.log(`Switched to backup node: ${newNodeUrl}`);
+        return newNodeUrl;
+    }
+
+    /**
      * Core HTTP request method with comprehensive error handling
      */
     async makeRequest(endpoint, options = {}) {
         const startTime = performance.now();
         const requestId = ++this.requestCount;
         
-        const url = this.config.getFullUrl(endpoint);
+        const url = `${this.getCurrentNodeUrl()}${endpoint}`;
         const requestOptions = {
-            credentials: 'include', // Always include cookies
+            credentials: 'include', // Include credentials through proxy
+            mode: 'cors',
             ...options,
             headers: {
                 'Content-Type': 'application/json',

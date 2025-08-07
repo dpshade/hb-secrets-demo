@@ -57,17 +57,19 @@ class ChatHistory {
                             tags.forEach(tag => {
                                 if (tag.name && tag.value) {
                                     tagMap[tag.name] = tag.value;
+                                } else if (tag.Name && tag.Value) {
+                                    tagMap[tag.Name] = tag.Value;
                                 }
                             });
                         }
                         
                         return {
-                            content: msg.Data,
+                            content: decodeURIComponent(msg.Data.replace(/\+/g, ' ')),
                             reference: msg.Id || slot.toString(),
                             slot: slot,
                             timestamp: msg.Timestamp || Date.now(),
                             tags: tagMap,
-                            username: tagMap.username || tagMap.Username || null
+                            username: tagMap.username || tagMap.Username || 'Chat User'
                         };
                     });
                 
@@ -108,43 +110,56 @@ class ChatHistory {
                 if (response.data.outbox) {
                     // Standard AO outbox format
                     messages = response.data.outbox
-                        .filter(item => item.data || item.cache?.data)
-                        .map(item => ({
-                            content: item.data || item.cache?.data,
-                            reference: item.reference,
-                            slot: slot,
-                            timestamp: item.timestamp || Date.now(),
-                            tags: item.tags || {},
-                            username: item.tags?.username || item.tags?.Username || null
-                        }));
+                        .filter(item => item.data || item.cache?.data || item.cache?.content)
+                        .map(item => {
+                            // Handle different data formats
+                            let content = item.data || item.cache?.data || item.cache?.content || '';
+                            let username = 'Chat User';
+                            
+                            // Check for username in cache or tags
+                            if (item.cache?.username) {
+                                username = item.cache.username;
+                            } else if (item.tags?.username || item.tags?.Username) {
+                                username = item.tags.username || item.tags.Username;
+                            }
+                            
+                            return {
+                                content: decodeURIComponent(content.replace(/\+/g, ' ')),
+                                reference: item.reference,
+                                slot: slot,
+                                timestamp: item.timestamp || Date.now(),
+                                tags: item.tags || {},
+                                username: username
+                            };
+                        });
                 } else if (response.data.result) {
                     // Alternative result format
                     messages = Array.isArray(response.data.result) 
                         ? response.data.result.map((item, index) => ({
-                            content: item.data || item,
+                            content: decodeURIComponent((item.data || item).replace(/\+/g, ' ')),
                             reference: index.toString(),
                             slot: slot,
                             timestamp: Date.now(),
                             tags: item.tags || {},
-                            username: item.tags?.username || item.tags?.Username || null
+                            username: item.tags?.username || item.tags?.Username || 'Chat User'
                         }))
                         : [{
-                            content: response.data.result.data || response.data.result,
+                            content: decodeURIComponent((response.data.result.data || response.data.result).replace(/\+/g, ' ')),
                             reference: '0',
                             slot: slot,
                             timestamp: Date.now(),
                             tags: response.data.result.tags || {},
-                            username: response.data.result.tags?.username || response.data.result.tags?.Username || null
+                            username: response.data.result.tags?.username || response.data.result.tags?.Username || 'Chat User'
                         }];
                 } else if (typeof response.data === 'string' && response.data.trim()) {
                     // Simple string response
                     messages = [{
-                        content: response.data.trim(),
+                        content: decodeURIComponent(response.data.trim().replace(/\+/g, ' ')),
                         reference: '0',
                         slot: slot,
                         timestamp: Date.now(),
                         tags: {},
-                        username: null // String responses typically don't have tag metadata
+                        username: 'Chat User' // String responses typically don't have tag metadata
                     }];
                 }
 
