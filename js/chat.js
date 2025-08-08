@@ -120,7 +120,8 @@ class ChatSystem {
                 author: username,
                 status: 'pending',
                 method: 'direct-push',
-                isPending: true
+                isPending: true,
+                walletAddress: this.auth.getWalletAddress()
             };
             
             // No longer using hash-based deduplication
@@ -153,7 +154,30 @@ class ChatSystem {
                     method: 'direct-push',
                     response: result
                 });
+                
+                // Update sent message count
+                this.updateSentMessageCount();
                 this.updateStatus(`Message sent successfully!`, 'connected');
+                
+                // Extract wallet address from response if available, or use default for successful connection
+                let walletAddress = 'Connected'; // Default for successful 200 response
+                
+                if (result.data && result.data.outbox && result.data.outbox.length > 0) {
+                    const outboxMessage = result.data.outbox[0];
+                    if (outboxMessage.cache && outboxMessage.cache.wallet_address) {
+                        walletAddress = outboxMessage.cache.wallet_address;
+                        this.config.debug('Using wallet address from push response:', walletAddress);
+                    }
+                }
+                
+                // Always emit wallet update event on successful 200 response
+                this.config.debug('Updating wallet status - successful response with address:', walletAddress);
+                window.dispatchEvent(new CustomEvent('hyperbeam-wallet-update', {
+                    detail: {
+                        walletAddress: walletAddress,
+                        source: 'push-response'
+                    }
+                }));
                 
                 // Trigger immediate check for responses
                 setTimeout(() => this.checkForNewMessages(), this.config.TIMING.POST_SEND_DELAY);
@@ -248,9 +272,39 @@ class ChatSystem {
             if (messages.length > 0) {
                 this.config.debug(`Found ${messages.length} messages in slot ${slot}`);
                 
-                // Process each message
+                // Prepare new messages without displaying them yet
+                const newMessages = [];
                 for (const message of messages) {
-                    await this.processHistoryMessage(message);
+                    const messageId = `history-${message.slot}-${message.reference}`;
+                    
+                    // Check if we already have this message
+                    if (!this.messages.find(m => m.id === messageId)) {
+                        const preparedMessage = await this.prepareHistoryMessage(message);
+                        if (preparedMessage) {
+                            newMessages.push(preparedMessage);
+                        }
+                    }
+                }
+                
+                if (newMessages.length > 0) {
+                    // Add new messages to existing messages and sort all together
+                    const allMessages = [...this.messages, ...newMessages];
+                    
+                    // Sort all messages by timestamp
+                    allMessages.sort((a, b) => {
+                        if (a.timestamp !== b.timestamp) {
+                            return a.timestamp - b.timestamp;
+                        }
+                        if (a.slot !== b.slot) {
+                            return a.slot - b.slot;
+                        }
+                        return parseInt(a.reference || '0') - parseInt(b.reference || '0');
+                    });
+                    
+                    // Display all messages in sorted order
+                    this.displayMessages(allMessages);
+                    
+                    this.config.debug(`Added ${newMessages.length} new messages from slot ${slot}`);
                 }
             }
             
@@ -287,6 +341,242 @@ class ChatSystem {
     }
 
     /**
+     * Prepare a message from chat history without adding it to UI
+     */
+    async prepareHistoryMessage(historyMessage) {
+        this.config.debug(`Preparing history message from slot ${historyMessage.slot}:`, historyMessage.content);
+
+        // Extract username from message metadata/tags (now properly stored by AO process)
+        let username = 'Chat User'; // Default username
+        
+        if (historyMessage.tags && historyMessage.tags.username) {
+            username = historyMessage.tags.username;
+        } else if (historyMessage.tags && historyMessage.tags.Username) {
+            username = historyMessage.tags.Username;
+        } else if (historyMessage.username) {
+            username = historyMessage.username;
+        }
+        
+        // Extract wallet address from message metadata/tags
+        let messageWalletAddress = null;
+        if (historyMessage.tags && historyMessage.tags.wallet_address) {
+            messageWalletAddress = historyMessage.tags.wallet_address;
+        } else if (historyMessage.tags && historyMessage.tags.Wallet_Address) {
+            messageWalletAddress = historyMessage.tags.Wallet_Address;
+        } else if (historyMessage.walletAddress) {
+            messageWalletAddress = historyMessage.walletAddress;
+        }
+        
+        // Get current user info for comparison
+        const usernameInput = document.getElementById('username-input');
+        const currentUsername = usernameInput?.value?.trim() || 'Chat User';
+        const currentWalletAddress = this.auth.getWalletAddress();
+        
+        this.config.debug(`Preparing history: '${historyMessage.content}' from '${username}' (wallet: ${messageWalletAddress}), current user: '${currentUsername}' (wallet: ${currentWalletAddress})'`);
+        
+        // Check if this message is from the current user - prioritize wallet address comparison
+        let isOwnMessage = false;
+        if (messageWalletAddress && currentWalletAddress && messageWalletAddress !== 'auto-generated' && currentWalletAddress !== 'auto-generated') {
+            // Use wallet address comparison when both are available
+            isOwnMessage = messageWalletAddress === currentWalletAddress;
+        } else {
+            // Fallback to username comparison
+            isOwnMessage = username === currentUsername;
+        }
+        
+        // If this message is from the current user, check for existing pending message
+        if (isOwnMessage) {
+            // Find the most recent matching message regardless of pending/confirmed status
+            const existing = this.messages.slice().reverse().find(m =>
+                m.content === historyMessage.content &&
+                m.author === currentUsername
+            );
+
+            if (existing) {
+                // If we've already set the same slot/reference, skip re-processing
+                if (existing.slot === historyMessage.slot && existing.reference === historyMessage.reference) {
+                    this.config.debug('Own history message already processed; skipping');
+                    return null;
+                }
+
+                // Update existing message data but don't modify UI yet
+                existing.status = 'confirmed';
+                existing.isPending = false;
+                existing.slot = historyMessage.slot;
+                existing.reference = historyMessage.reference;
+                existing.source = 'chat-history';
+
+                return existing; // Return updated existing message
+            }
+        }
+        
+        // This is a new message from someone else - prepare it
+        const processMessage = {
+            id: `history-${historyMessage.slot}-${historyMessage.reference}`,
+            content: historyMessage.content,
+            timestamp: historyMessage.timestamp,
+            author: username,
+            status: 'received',
+            slot: historyMessage.slot,
+            reference: historyMessage.reference,
+            source: 'chat-history',
+            walletAddress: messageWalletAddress
+        };
+
+        return processMessage;
+    }
+
+    /**
+     * Display multiple messages at once after they've been loaded and sorted
+     */
+    displayMessages(messages) {
+        // Clear existing messages from UI but keep them in memory for deduplication
+        if (this.messageContainer) {
+            this.messageContainer.innerHTML = '';
+        }
+        
+        // Reset messages array and add all prepared messages
+        this.messages = [...messages];
+        
+        // Render all messages at once
+        if (this.messageContainer) {
+            // Create document fragment for efficient DOM manipulation
+            const fragment = document.createDocumentFragment();
+            
+            messages.forEach(message => {
+                const messageEl = document.createElement('div');
+                messageEl.className = 'message';
+                messageEl.setAttribute('data-message-id', message.id);
+                
+                // Add pending/confirmed state classes
+                if (message.isPending || message.status === 'pending') {
+                    messageEl.classList.add('pending');
+                } else if (message.status === 'confirmed') {
+                    messageEl.classList.add('confirmed');
+                }
+                
+                this.updateMessageElement(messageEl, message);
+                fragment.appendChild(messageEl);
+            });
+            
+            // Add all messages to DOM at once
+            this.messageContainer.appendChild(fragment);
+            
+            // Update grouping for all messages
+            this.updateAllMessageGrouping();
+            
+            // Scroll to bottom after all messages are displayed
+            this.scrollToBottom();
+        }
+        
+        this.config.debug(`Displayed ${messages.length} messages`);
+    }
+    
+    /**
+     * Display messages with staggered animation
+     */
+    displayMessagesWithAnimation(messages) {
+        // Reset messages array and add all prepared messages
+        this.messages = [...messages];
+        
+        // Render messages with progressive content revelation
+        if (this.messageContainer) {
+            
+            // Create document fragment for efficient DOM manipulation
+            const fragment = document.createDocumentFragment();
+            
+            messages.forEach((message, index) => {
+                const messageEl = document.createElement('div');
+                messageEl.className = 'message message-stagger';
+                messageEl.setAttribute('data-message-id', message.id);
+                
+                // Add pending/confirmed state classes
+                if (message.isPending || message.status === 'pending') {
+                    messageEl.classList.add('pending');
+                } else if (message.status === 'confirmed') {
+                    messageEl.classList.add('confirmed');
+                }
+                
+                this.updateMessageElement(messageEl, message);
+                fragment.appendChild(messageEl);
+            });
+            
+            // Add all messages to container at once
+            this.messageContainer.appendChild(fragment);
+            
+            // Update grouping for all messages
+            this.updateAllMessageGrouping();
+            
+            
+            // Scroll to bottom after animations complete
+            setTimeout(() => {
+                this.scrollToBottom();
+            }, Math.min(messages.length * 40, 500) + 300);
+        }
+        
+        this.config.debug(`Displayed ${messages.length} messages with smooth transition`);
+    }
+    
+    
+    /**
+     * Show loading skeleton while messages are being fetched
+     */
+    showLoadingSkeleton() {
+        if (!this.messageContainer) return;
+        
+        this.messageContainer.innerHTML = '<div class="loading">Loading chat history...</div>';
+    }
+    
+    /**
+     * Hide loading skeleton with smooth transition
+     */
+    async hideLoadingSkeleton() {
+        if (!this.messageContainer) return;
+
+        const skeletonItems = this.messageContainer.querySelectorAll('.skeleton-message');
+        if (skeletonItems.length === 0) {
+            this.messageContainer.innerHTML = ''; // Just clean up if no skeleton
+            return;
+        }
+
+        // Create a promise that resolves when the last skeleton item finishes its transition
+        await new Promise(resolve => {
+            const lastSkeletonItem = skeletonItems[skeletonItems.length - 1];
+
+            // Listen for the 'transitionend' event
+            lastSkeletonItem.addEventListener('transitionend', resolve, { once: true });
+
+            // Failsafe: if the event doesn't fire for some reason, resolve after a timeout
+            setTimeout(resolve, 300); 
+
+            // Add the class that triggers the animation on all skeleton items
+            this.messageContainer.classList.add('skeleton-transitioning');
+            this.messageContainer.classList.remove('skeleton-active');
+        });
+
+        // This code now runs *only after* the animation is truly finished
+        this.messageContainer.classList.remove('loading', 'skeleton-transitioning');
+        this.messageContainer.classList.add('content-preparing');
+        this.messageContainer.innerHTML = '';
+    }
+    
+    /**
+     * Show empty state when no messages are found
+     */
+    showEmptyState() {
+        if (!this.messageContainer) return;
+        
+        const emptyStateHTML = `
+            <div class="empty-state">
+                <h4>Welcome to the chat!</h4>
+                <p>No messages yet. Start the conversation by typing something below.</p>
+            </div>
+        `;
+        
+        this.messageContainer.innerHTML = emptyStateHTML;
+    }
+
+    /**
      * Process a message from chat history
      */
     async processHistoryMessage(historyMessage) {
@@ -303,14 +593,35 @@ class ChatSystem {
             username = historyMessage.username;
         }
         
-        // Simple approach: Is this message from the current user?
+        // Extract wallet address from message metadata/tags
+        let messageWalletAddress = null;
+        if (historyMessage.tags && historyMessage.tags.wallet_address) {
+            messageWalletAddress = historyMessage.tags.wallet_address;
+        } else if (historyMessage.tags && historyMessage.tags.Wallet_Address) {
+            messageWalletAddress = historyMessage.tags.Wallet_Address;
+        } else if (historyMessage.walletAddress) {
+            messageWalletAddress = historyMessage.walletAddress;
+        }
+        
+        // Get current user info for comparison
         const usernameInput = document.getElementById('username-input');
         const currentUsername = usernameInput?.value?.trim() || 'Chat User';
+        const currentWalletAddress = this.auth.getWalletAddress();
         
-        this.config.debug(`Processing history: '${historyMessage.content}' from '${username}', current user: '${currentUsername}'`);
+        this.config.debug(`Processing history: '${historyMessage.content}' from '${username}' (wallet: ${messageWalletAddress}), current user: '${currentUsername}' (wallet: ${currentWalletAddress})'`);
+        
+        // Check if this message is from the current user - prioritize wallet address comparison
+        let isOwnMessage = false;
+        if (messageWalletAddress && currentWalletAddress && messageWalletAddress !== 'auto-generated' && currentWalletAddress !== 'auto-generated') {
+            // Use wallet address comparison when both are available
+            isOwnMessage = messageWalletAddress === currentWalletAddress;
+        } else {
+            // Fallback to username comparison
+            isOwnMessage = username === currentUsername;
+        }
         
         // If this message is from the current user, merge it with the existing UI message
-        if (username === currentUsername) {
+        if (isOwnMessage) {
             // Find the most recent matching message regardless of pending/confirmed status
             const existing = this.messages.slice().reverse().find(m =>
                 m.content === historyMessage.content &&
@@ -374,7 +685,8 @@ class ChatSystem {
             status: 'received',
             slot: historyMessage.slot,
             reference: historyMessage.reference,
-            source: 'chat-history'
+            source: 'chat-history',
+            walletAddress: messageWalletAddress
         };
 
         this.addMessage(processMessage);
@@ -508,9 +820,20 @@ class ChatSystem {
     updateMessageElement(messageEl, message) {
         const timestamp = new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         
-        // Determine if this is own message or process message
-        // Messages with 'direct-push' method are our own messages
-        const isOwnMessage = message.method === 'direct-push' || message.source !== 'chat-history';
+        // Determine if this is own message using wallet address or method/source
+        let isOwnMessage = false;
+        
+        // Check if we have wallet address info to compare
+        const currentWalletAddress = this.auth.getWalletAddress();
+        if (message.walletAddress && currentWalletAddress && 
+            message.walletAddress !== 'auto-generated' && currentWalletAddress !== 'auto-generated') {
+            // Use wallet address comparison when available
+            isOwnMessage = message.walletAddress === currentWalletAddress;
+        } else {
+            // Fallback to method/source-based detection
+            isOwnMessage = message.method === 'direct-push' || message.source !== 'chat-history';
+        }
+        
         messageEl.classList.toggle('own-message', isOwnMessage);
         messageEl.classList.toggle('process-message', !isOwnMessage);
         
@@ -603,20 +926,54 @@ class ChatSystem {
      */
     async loadChatHistory() {
         try {
+            // Show loading skeleton (without the loading text artifact)
+            this.showLoadingSkeleton();
             this.updateStatus('Loading chat history...', '');
             
+            // Step 1: Load ALL messages first
             const historyMessages = await this.chatHistory.getAllChatHistory();
             this.config.log(`Loaded ${historyMessages.length} messages from chat history`);
             
-            // Process each history message
-            for (const historyMessage of historyMessages) {
-                await this.processHistoryMessage(historyMessage);
+            if (historyMessages.length === 0) {
+                await this.hideLoadingSkeleton();
+                this.showEmptyState();
+                this.updateStatus('No chat history found', 'connected');
+                return;
             }
             
-            this.updateStatus(`Loaded ${historyMessages.length} chat messages`, 'connected');
+            // Step 2: Process and prepare ALL messages without displaying them
+            const processedMessages = [];
+            const chronologicalMessages = historyMessages.slice().reverse();
+            
+            for (const historyMessage of chronologicalMessages) {
+                const processedMessage = await this.prepareHistoryMessage(historyMessage);
+                if (processedMessage) {
+                    processedMessages.push(processedMessage);
+                }
+            }
+            
+            // Step 3: Sort all processed messages
+            processedMessages.sort((a, b) => {
+                // Sort by timestamp primarily
+                if (a.timestamp !== b.timestamp) {
+                    return a.timestamp - b.timestamp;
+                }
+                // If timestamps are same, sort by slot then reference
+                if (a.slot !== b.slot) {
+                    return a.slot - b.slot;
+                }
+                return parseInt(a.reference || '0') - parseInt(b.reference || '0');
+            });
+            
+            // Step 4: Hide loading and display messages
+            await this.hideLoadingSkeleton();
+            this.displayMessagesWithAnimation(processedMessages);
+            
+            this.updateStatus(`Loaded ${processedMessages.length} chat messages`, 'connected');
             
         } catch (error) {
             this.config.log('Error loading chat history:', error);
+            await this.hideLoadingSkeleton();
             this.updateStatus('Failed to load chat history', 'error');
         }
     }
@@ -634,7 +991,7 @@ class ChatSystem {
         // Clear chat history cache
         this.chatHistory.clearCache();
         
-        // Reload history
+        // Reload history using the improved load-all-then-sort-then-display pattern
         await this.loadChatHistory();
     }
     
@@ -646,14 +1003,39 @@ class ChatSystem {
             // Get the latest few slots worth of messages
             const latestMessages = await this.chatHistory.getLatestMessages(5);
             
-            // Process any new messages we haven't seen yet
+            // Prepare new messages without displaying them yet
+            const newMessages = [];
             for (const historyMessage of latestMessages) {
                 const messageId = `history-${historyMessage.slot}-${historyMessage.reference}`;
                 
                 // Check if we already have this message
                 if (!this.messages.find(m => m.id === messageId)) {
-                    await this.processHistoryMessage(historyMessage);
+                    const preparedMessage = await this.prepareHistoryMessage(historyMessage);
+                    if (preparedMessage) {
+                        newMessages.push(preparedMessage);
+                    }
                 }
+            }
+            
+            if (newMessages.length > 0) {
+                // Add new messages to existing messages and sort all together
+                const allMessages = [...this.messages, ...newMessages];
+                
+                // Sort all messages by timestamp
+                allMessages.sort((a, b) => {
+                    if (a.timestamp !== b.timestamp) {
+                        return a.timestamp - b.timestamp;
+                    }
+                    if (a.slot !== b.slot) {
+                        return a.slot - b.slot;
+                    }
+                    return parseInt(a.reference || '0') - parseInt(b.reference || '0');
+                });
+                
+                // Display all messages in sorted order
+                this.displayMessages(allMessages);
+                
+                this.config.debug(`Added ${newMessages.length} new messages from latest history`);
             }
         } catch (error) {
             this.config.debug('Error refreshing latest history:', error);
@@ -723,6 +1105,38 @@ class ChatSystem {
                 }
             });
         }
+    }
+
+    /**
+     * Update sent message count in localStorage
+     */
+    updateSentMessageCount() {
+        if (typeof localStorage !== 'undefined') {
+            try {
+                const stats = JSON.parse(localStorage.getItem('hyperbeam-chat-stats') || '{}');
+                stats.totalSent = (stats.totalSent || 0) + 1;
+                stats.lastMessageTime = Date.now();
+                localStorage.setItem('hyperbeam-chat-stats', JSON.stringify(stats));
+                this.config.debug(`Updated sent message count: ${stats.totalSent}`);
+            } catch (error) {
+                this.config.debug('Failed to update sent message count:', error);
+            }
+        }
+    }
+    
+    /**
+     * Get sent message statistics
+     */
+    getSentMessageStats() {
+        if (typeof localStorage !== 'undefined') {
+            try {
+                return JSON.parse(localStorage.getItem('hyperbeam-chat-stats') || '{}');
+            } catch (error) {
+                this.config.debug('Failed to load sent message stats:', error);
+                return {};
+            }
+        }
+        return {};
     }
 
     /**

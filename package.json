@@ -2,7 +2,8 @@
   "name": "hyperbeam-chat",
   "private": true,
   "scripts": {
-    "dev": "bun --hot server.js"
+    "dev": "bun --hot server.js",
+    "start": "bun server.js"
   },
   "devDependencies": {
     "@types/bun": "latest"

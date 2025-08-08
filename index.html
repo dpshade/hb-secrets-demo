@@ -320,6 +320,7 @@
             justify-content: flex-end;
             gap: 0;
             font-family: var(--font-family);
+            position: relative;
         }
         
         .message {
@@ -685,18 +686,23 @@
         /* Utility Components */
         /* Enhanced Loading States */
         .loading {
-            text-align: center;
-            padding: var(--space-6);
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
             color: var(--gray-500);
             font-size: var(--font-size-body);
-            position: relative;
+            gap: var(--space-2);
         }
         
         .loading::before {
             content: '↻';
             display: inline-block;
-            animation: spin 2s linear infinite;
-            margin-right: var(--space-1);
+            font-size: 24px;
+            animation: spinBounce 1s ease-in-out infinite;
         }
         
         .empty-state {
@@ -1059,6 +1065,41 @@
         @keyframes spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
+        }
+        
+        @keyframes spinBounce {
+            0% { transform: rotate(0deg); }
+            20% { transform: rotate(144deg); }
+            40% { transform: rotate(216deg); }
+            60% { transform: rotate(288deg); }
+            80% { transform: rotate(324deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* Message Animation States */
+        .message-stagger {
+            opacity: 0;
+            transform: translateY(8px) scale(0.98);
+            animation: messageStaggerIn 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+        }
+        
+        .message-stagger:nth-child(1) { animation-delay: 0ms; }
+        .message-stagger:nth-child(2) { animation-delay: 40ms; }
+        .message-stagger:nth-child(3) { animation-delay: 80ms; }
+        .message-stagger:nth-child(4) { animation-delay: 120ms; }
+        .message-stagger:nth-child(5) { animation-delay: 160ms; }
+        .message-stagger:nth-child(6) { animation-delay: 200ms; }
+        .message-stagger:nth-child(7) { animation-delay: 240ms; }
+        .message-stagger:nth-child(8) { animation-delay: 280ms; }
+        .message-stagger:nth-child(9) { animation-delay: 320ms; }
+        .message-stagger:nth-child(10) { animation-delay: 360ms; }
+        .message-stagger:nth-child(n+11) { animation-delay: 400ms; }
+        
+        @keyframes messageStaggerIn {
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
         }
         
         .message-new {

@@ -3,7 +3,26 @@
  * Serves static files and proxies requests to HyperBEAM node to avoid CORS issues
  */
 
-const BASE_PORT = Number(process.env.PORT) || 4321;
+// Parse command line arguments
+function parseArgs() {
+    const args = process.argv.slice(2);
+    const parsed = {};
+    
+    for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--port' || args[i] === '-p') {
+            const portValue = args[i + 1];
+            if (portValue && !isNaN(parseInt(portValue))) {
+                parsed.port = parseInt(portValue);
+                i++; // Skip next argument as it's the port value
+            }
+        }
+    }
+    
+    return parsed;
+}
+
+const args = parseArgs();
+const BASE_PORT = args.port || Number(process.env.PORT) || 4321;
 const MAX_TRIES = 10;
 
 let server;
