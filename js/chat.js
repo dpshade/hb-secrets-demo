@@ -134,11 +134,21 @@ class ChatSystem {
                 const stillPendingMessage = this.messages.find(m => m.id === messageId && m.isPending);
                 if (stillPendingMessage) {
                     this.config.debug(`Auto-confirming message ${messageId} after timeout`);
-                    this.updateMessageStatus(messageId, 'confirmed', {
-                        autoConfirmed: true,
-                        reason: 'timeout'
-                    });
-                    // Auto-confirmation cleanup
+                    
+                    // Update message properties
+                    stillPendingMessage.status = 'confirmed';
+                    stillPendingMessage.isPending = false;
+                    stillPendingMessage.source = 'auto-confirmed';
+                    
+                    // Update UI element smoothly
+                    if (this.messageContainer) {
+                        const messageEl = this.messageContainer.querySelector(`[data-message-id="${messageId}"]`);
+                        if (messageEl) {
+                            messageEl.classList.remove('pending');
+                            messageEl.classList.add('confirmed');
+                            this.updateMessageElement(messageEl, stillPendingMessage);
+                        }
+                    }
                 }
             }, 15000); // 15 second timeout
 
@@ -149,12 +159,6 @@ class ChatSystem {
 
             // Update message status
             if (result.ok) {
-                this.updateMessageStatus(messageId, 'confirmed', {
-                    success: true,
-                    method: 'direct-push',
-                    response: result
-                });
-                
                 // Update sent message count
                 this.updateSentMessageCount();
                 this.updateStatus(`Message sent successfully!`, 'connected');
@@ -162,11 +166,23 @@ class ChatSystem {
                 // Extract wallet address from response if available, or use default for successful connection
                 let walletAddress = 'Connected'; // Default for successful 200 response
                 
+                // First check the outbox array
                 if (result.data && result.data.outbox && result.data.outbox.length > 0) {
                     const outboxMessage = result.data.outbox[0];
                     if (outboxMessage.cache && outboxMessage.cache.wallet_address) {
                         walletAddress = outboxMessage.cache.wallet_address;
-                        this.config.debug('Using wallet address from push response:', walletAddress);
+                        this.config.debug('Using wallet address from outbox:', walletAddress);
+                    }
+                }
+                
+                // Also check numbered slot responses (like "1": {...})
+                if (walletAddress === 'Connected' && result.data) {
+                    for (const [key, value] of Object.entries(result.data)) {
+                        if (!isNaN(key) && value.message && value.message.cache && value.message.cache.wallet_address) {
+                            walletAddress = value.message.cache.wallet_address;
+                            this.config.debug(`Using wallet address from slot [${key}]:`, walletAddress);
+                            break;
+                        }
                     }
                 }
                 
@@ -179,8 +195,8 @@ class ChatSystem {
                     }
                 }));
                 
-                // Trigger immediate check for responses
-                setTimeout(() => this.checkForNewMessages(), this.config.TIMING.POST_SEND_DELAY);
+                // IMMEDIATELY check slots and replace pending message with computed result
+                this.checkForNewMessagesAndReplacePending(messageId, messageContent, username);
                 
                 this.emit('messageSent', { message, result });
                 
@@ -231,6 +247,71 @@ class ChatSystem {
         this.isPolling = false;
         this.config.log('Message polling stopped');
     }
+
+    /**
+     * Check for new messages and smoothly confirm pending message with computed result
+     */
+    async checkForNewMessagesAndReplacePending(pendingMessageId, messageContent, username) {
+        try {
+            // Wait a brief moment for the message to be processed
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Check current slot and get latest messages
+            const currentSlot = await this.api.getCurrentSlot();
+            const latestMessages = await this.chatHistory.getLatestMessages(3);
+            
+            // Look for our message in the latest results
+            const computedMessage = latestMessages.find(msg => 
+                msg.content === messageContent && 
+                (msg.tags?.username === username || msg.tags?.Username === username || msg.username === username)
+            );
+            
+            if (computedMessage) {
+                this.config.debug(`Found computed message for pending ${pendingMessageId}:`, computedMessage);
+                
+                // Update the existing pending message in-place to confirmed state
+                const pendingMessage = this.messages.find(m => m.id === pendingMessageId);
+                if (pendingMessage) {
+                    // Generate the new ID that matches what polling system expects
+                    const newId = `history-${computedMessage.slot}-${computedMessage.reference}`;
+                    
+                    // Update message properties with slot information
+                    pendingMessage.id = newId; // Critical: update ID to prevent duplicates
+                    pendingMessage.status = 'confirmed';
+                    pendingMessage.isPending = false;
+                    pendingMessage.slot = computedMessage.slot;
+                    pendingMessage.reference = computedMessage.reference;
+                    pendingMessage.source = 'chat-history-confirmed';
+                    
+                    // Update UI element smoothly
+                    if (this.messageContainer) {
+                        const messageEl = this.messageContainer.querySelector(`[data-message-id="${pendingMessageId}"]`);
+                        if (messageEl) {
+                            // Update the data attribute to match new ID
+                            messageEl.setAttribute('data-message-id', newId);
+                            
+                            // Remove pending state and add confirmed state
+                            messageEl.classList.remove('pending');
+                            messageEl.classList.add('confirmed');
+                            
+                            // Update the message element content if needed
+                            this.updateMessageElement(messageEl, pendingMessage);
+                        }
+                    }
+                    
+                    this.config.debug(`Smoothly confirmed pending message ${pendingMessageId} -> ${newId} with computed result`);
+                } else {
+                    this.config.debug(`Could not find pending message ${pendingMessageId} to confirm`);
+                }
+            } else {
+                this.config.debug(`No computed message found yet for pending ${pendingMessageId}, will auto-confirm on timeout`);
+            }
+            
+        } catch (error) {
+            this.config.debug('Error checking for computed messages:', error);
+        }
+    }
+
 
     /**
      * Check for new messages and slot advancement
@@ -384,30 +465,20 @@ class ChatSystem {
             isOwnMessage = username === currentUsername;
         }
         
-        // If this message is from the current user, check for existing pending message
+        // If this message is from the current user, check for existing message
         if (isOwnMessage) {
-            // Find the most recent matching message regardless of pending/confirmed status
-            const existing = this.messages.slice().reverse().find(m =>
-                m.content === historyMessage.content &&
-                m.author === currentUsername
+            // Find existing message with same slot/reference to avoid duplicates
+            const existing = this.messages.find(m => 
+                m.slot === historyMessage.slot && 
+                m.reference === historyMessage.reference
             );
 
             if (existing) {
-                // If we've already set the same slot/reference, skip re-processing
-                if (existing.slot === historyMessage.slot && existing.reference === historyMessage.reference) {
-                    this.config.debug('Own history message already processed; skipping');
-                    return null;
-                }
-
-                // Update existing message data but don't modify UI yet
-                existing.status = 'confirmed';
-                existing.isPending = false;
-                existing.slot = historyMessage.slot;
-                existing.reference = historyMessage.reference;
-                existing.source = 'chat-history';
-
-                return existing; // Return updated existing message
+                this.config.debug('Own history message already processed; skipping');
+                return null;
             }
+            
+            // Don't merge with pending messages - they should be handled by checkForNewMessagesAndReplacePending
         }
         
         // This is a new message from someone else - prepare it
