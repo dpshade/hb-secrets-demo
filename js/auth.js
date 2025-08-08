@@ -248,10 +248,16 @@ class AuthSystem {
      */
     async handleSuccessfulAuth(authData) {
         this.currentMethod = authData.method;
+        
+        // Preserve existing wallet address if the new one is 'auto-generated'
+        const preservedWalletAddress = (authData.walletAddress === 'auto-generated' && this.authState.walletAddress && this.authState.walletAddress !== 'auto-generated') 
+            ? this.authState.walletAddress 
+            : authData.walletAddress;
+            
         this.authState = {
             authenticated: true,
             method: authData.method,
-            walletAddress: authData.walletAddress,
+            walletAddress: preservedWalletAddress,
             username: authData.username,
             sessionStarted: Date.now(),
             lastActivity: Date.now(),
@@ -378,6 +384,19 @@ class AuthSystem {
                     };
                     this.currentMethod = persistData.method;
                     this.config.debug('Auth state loaded from storage');
+                    
+                    // If wallet address exists, dispatch event to update UI
+                    if (persistData.walletAddress) {
+                        this.config.log('Restored wallet address from localStorage:', persistData.walletAddress);
+                        setTimeout(() => {
+                            window.dispatchEvent(new CustomEvent('hyperbeam-wallet-restore', {
+                                detail: {
+                                    walletAddress: persistData.walletAddress,
+                                    source: 'localStorage-restore'
+                                }
+                            }));
+                        }, 100); // Small delay to ensure UI is ready
+                    }
                 }
             } catch (error) {
                 this.config.debug('Failed to load persisted auth state:', error);
@@ -431,6 +450,20 @@ class AuthSystem {
      */
     getWalletAddress() {
         return this.authState.walletAddress;
+    }
+    
+    /**
+     * Update the wallet address in auth state (from message responses)
+     */
+    updateWalletAddress(walletAddress) {
+        if (!walletAddress) return;
+        
+        this.config.log('Updating wallet address in auth state:', walletAddress);
+        this.authState.walletAddress = walletAddress;
+        this.authState.lastActivity = Date.now();
+        
+        // Use the same persistAuthState method for consistency
+        this.persistAuthState();
     }
 
     /**

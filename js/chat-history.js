@@ -38,48 +38,9 @@ class ChatHistory {
 
     // Try to get raw message data with tags from process inbox
     async getRawMessagesFromSlot(slot) {
-        try {
-            const endpoint = `/${this.processId}~process@1.0/inbox&from=${slot}&to=${slot}/serialize~json@1.0`;
-            const response = await this.api.makeRequest(endpoint, {
-                method: 'POST',
-                body: '{}'
-            });
-
-            if (response.ok && response.data && response.data.messages) {
-                const messages = response.data.messages
-                    .filter(msg => msg.Data && (msg.Tags || msg.tags))
-                    .map(msg => {
-                        const tags = msg.Tags || msg.tags || [];
-                        const tagMap = {};
-                        
-                        // Convert tags array to object
-                        if (Array.isArray(tags)) {
-                            tags.forEach(tag => {
-                                if (tag.name && tag.value) {
-                                    tagMap[tag.name] = tag.value;
-                                } else if (tag.Name && tag.Value) {
-                                    tagMap[tag.Name] = tag.Value;
-                                }
-                            });
-                        }
-                        
-                        return {
-                            content: decodeURIComponent(msg.Data.replace(/\+/g, ' ')),
-                            reference: msg.Id || slot.toString(),
-                            slot: slot,
-                            timestamp: msg.Timestamp || Date.now(),
-                            tags: tagMap,
-                            username: tagMap.username || tagMap.Username || 'Chat User'
-                        };
-                    });
-                
-                console.log(`Found ${messages.length} raw messages with tags in slot ${slot}`);
-                return messages;
-            }
-        } catch (error) {
-            console.debug(`Could not get raw messages for slot ${slot}:`, error);
-        }
-        
+        // Note: HyperBEAM inbox endpoint doesn't support from/to query parameters
+        // Messages are retrieved via compute endpoint instead in getMessagesFromSlot()
+        // This function returns empty array for compatibility
         return [];
     }
 
@@ -115,6 +76,7 @@ class ChatHistory {
                             // Handle different data formats
                             let content = item.data || item.cache?.data || item.cache?.content || '';
                             let username = 'Chat User';
+                            let walletAddress = null;
                             
                             // Check for username in cache or tags
                             if (item.cache?.username) {
@@ -123,13 +85,25 @@ class ChatHistory {
                                 username = item.tags.username || item.tags.Username;
                             }
                             
+                            // Check for wallet address in cache or tags
+                            if (item.cache?.wallet_address) {
+                                walletAddress = item.cache.wallet_address;
+                            } else if (item.tags?.wallet_address) {
+                                walletAddress = item.tags.wallet_address;
+                            } else if (item.tags?.Wallet_Address) {
+                                walletAddress = item.tags.Wallet_Address;
+                            } else if (item.owner) {
+                                walletAddress = item.owner;
+                            }
+                            
                             return {
                                 content: decodeURIComponent(content.replace(/\+/g, ' ')),
                                 reference: item.reference,
                                 slot: slot,
                                 timestamp: item.cache?.timestamp || item.timestamp,
                                 tags: item.tags || {},
-                                username: username
+                                username: username,
+                                walletAddress: walletAddress
                             };
                         });
                 } else if (response.data.result) {
@@ -141,7 +115,8 @@ class ChatHistory {
                             slot: slot,
                             timestamp: Date.now(),
                             tags: item.tags || {},
-                            username: item.tags?.username || item.tags?.Username || 'Chat User'
+                            username: item.tags?.username || item.tags?.Username || 'Chat User',
+                            walletAddress: item.tags?.wallet_address || item.tags?.Wallet_Address || item.owner || null
                         }))
                         : [{
                             content: decodeURIComponent((response.data.result.data || response.data.result).replace(/\+/g, ' ')),
@@ -149,7 +124,8 @@ class ChatHistory {
                             slot: slot,
                             timestamp: Date.now(),
                             tags: response.data.result.tags || {},
-                            username: response.data.result.tags?.username || response.data.result.tags?.Username || 'Chat User'
+                            username: response.data.result.tags?.username || response.data.result.tags?.Username || 'Chat User',
+                            walletAddress: response.data.result.tags?.wallet_address || response.data.result.tags?.Wallet_Address || response.data.result.owner || null
                         }];
                 } else if (typeof response.data === 'string' && response.data.trim()) {
                     // Simple string response
@@ -159,12 +135,21 @@ class ChatHistory {
                         slot: slot,
                         timestamp: Date.now(),
                         tags: {},
-                        username: 'Chat User' // String responses typically don't have tag metadata
+                        username: 'Chat User', // String responses typically don't have tag metadata
+                        walletAddress: null // String responses typically don't have wallet metadata
                     }];
                 }
 
                 this.cachedMessages.set(slot, messages);
                 console.log(`Found ${messages.length} messages in slot ${slot}`);
+                
+                // Debug: Log wallet addresses found in messages
+                messages.forEach((msg, i) => {
+                    if (msg.walletAddress) {
+                        console.log(`Message ${i} wallet address: ${msg.walletAddress.substring(0, 8)}...`);
+                    }
+                });
+                
                 return messages;
             }
         } catch (error) {
@@ -183,33 +168,34 @@ class ChatHistory {
             // Get current slot
             const currentSlot = await this.getCurrentSlot();
             
-            // Determine slot range
+            // Determine slot range - work backwards from current slot
             let startSlot, endSlot;
             if (startFromSlot) {
-                startSlot = startFromSlot;
-                endSlot = Math.min(currentSlot, startFromSlot + maxSlots);
+                startSlot = Math.max(1, startFromSlot - maxSlots);
+                endSlot = startFromSlot;
             } else {
-                // Default: get most recent messages
-                startSlot = Math.max(1, currentSlot - maxSlots);
+                // Default: get most recent messages by working backwards
+                startSlot = Math.max(1, currentSlot - maxSlots + 1);
                 endSlot = currentSlot;
             }
             
-            console.log(`Loading chat history from slot ${startSlot} to ${endSlot}`);
+            console.log(`Loading chat history backwards from slot ${endSlot} to ${startSlot}`);
 
             const allMessages = [];
             
-            for (let slot = startSlot; slot <= endSlot; slot++) {
+            // Process slots in reverse order (most recent first)
+            for (let slot = endSlot; slot >= startSlot; slot--) {
                 const messages = await this.getMessagesFromSlot(slot);
                 allMessages.push(...messages);
             }
 
-            // Sort by slot and reference to maintain chronological order
+            // Sort by slot (descending) and reference to maintain newest-first order
             allMessages.sort((a, b) => {
-                if (a.slot !== b.slot) return a.slot - b.slot;
-                return parseInt(a.reference || '0') - parseInt(b.reference || '0');
+                if (a.slot !== b.slot) return b.slot - a.slot; // Most recent slot first
+                return parseInt(b.reference || '0') - parseInt(a.reference || '0'); // Most recent reference first
             });
 
-            console.log(`Loaded ${allMessages.length} chat messages from slots ${startSlot}-${endSlot}`);
+            console.log(`Loaded ${allMessages.length} chat messages backwards from slots ${endSlot}-${startSlot}`);
             return allMessages;
             
         } catch (error) {
@@ -225,16 +211,19 @@ class ChatHistory {
             const currentSlot = await this.getCurrentSlot();
             const messages = [];
             
-            // Check last few slots for recent messages
-            for (let slot = Math.max(1, currentSlot - 20); slot <= currentSlot; slot++) {
+            // Check slots backwards from current for recent messages
+            for (let slot = currentSlot; slot >= Math.max(1, currentSlot - 20); slot--) {
                 const slotMessages = await this.getMessagesFromSlot(slot);
                 messages.push(...slotMessages);
+                
+                // Stop early if we have enough messages
+                if (messages.length >= count * 2) break;
             }
 
-            // Sort and return latest messages
+            // Sort and return latest messages (most recent first)
             messages.sort((a, b) => {
-                if (a.slot !== b.slot) return b.slot - a.slot; // Descending
-                return parseInt(b.reference || '0') - parseInt(a.reference || '0');
+                if (a.slot !== b.slot) return b.slot - a.slot; // Most recent slot first
+                return parseInt(b.reference || '0') - parseInt(a.reference || '0'); // Most recent reference first
             });
 
             return messages.slice(0, count);
