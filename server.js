@@ -33,11 +33,11 @@ function startServer() {
         const tryPort = BASE_PORT + i;
         try {
             selectedPort = tryPort;
-            const allowedOrigin = `http://localhost:${selectedPort}`;
+            const allowedOrigin = '*'; // Allow access from any device on network
 
             server = Bun.serve({
                 port: tryPort,
-                hostname: 'localhost',
+                hostname: '0.0.0.0',
                 async fetch(req) {
                     const url = new URL(req.url);
 
@@ -155,6 +155,9 @@ function startServer() {
 
 startServer();
 
-console.log(`🚀 HyperBEAM Chat server running at http://localhost:${selectedPort}`);
+console.log(`🚀 HyperBEAM Chat server running on port ${selectedPort}`);
+console.log(`🏠 Local access: http://localhost:${selectedPort}`);
+console.log(`🌐 Network access: http://[YOUR-IP]:${selectedPort}`);
 console.log(`📡 Proxying HyperBEAM requests from /api/hyperbeam/* to http://localhost:8734/*`);
-console.log(`🔄 CORS enabled for local development (allowed origin: http://localhost:${selectedPort})`);
+console.log(`🔄 CORS enabled for network access (allowed origin: *)`);
+console.log(`💡 To find your IP address, run: ifconfig | grep "inet "`);

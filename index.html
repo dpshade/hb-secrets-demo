@@ -599,29 +599,37 @@
         /* Message state styling */
         .message.pending {
             opacity: 0.6;
-            transition: opacity 0.3s ease;
+            transition: opacity 0.4s ease, transform 0.2s ease;
             position: relative;
+            animation: breathe 2s ease-in-out infinite;
         }
         
-        /* Subtle loading animation for pending messages */
+        /* Subtle breathing animation for pending messages */
+        @keyframes breathe {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 0.8; }
+        }
+        
+        /* Subtle loading indicator for pending messages */
         .message.pending::after {
             content: '';
             position: absolute;
             right: 8px;
             top: 50%;
             transform: translateY(-50%);
-            width: 8px;
-            height: 8px;
-            border: 2px solid var(--accent-orange);
+            width: 6px;
+            height: 6px;
+            border: 1.5px solid var(--accent-orange);
             border-radius: 50%;
             border-top-color: transparent;
-            animation: spin 1s linear infinite;
-            opacity: 0.7;
+            animation: spin 1.2s linear infinite;
+            opacity: 0.5;
         }
         
         .message.confirmed {
             opacity: 1;
-            transition: opacity 0.3s ease;
+            transition: opacity 0.4s ease, transform 0.2s ease;
+            animation: none;
         }
         
         /* Subtle success indicator for confirmed own messages */
@@ -911,7 +919,7 @@
             content: '↻';
             display: inline-block;
             font-size: 24px;
-            animation: spinBounce 1s ease-in-out infinite;
+            animation: spinBounce 0.75s ease-in-out infinite;
         }
         
         .empty-state {
@@ -960,7 +968,6 @@
             background: var(--light-panel);
             border: 1px solid var(--border-gray);
             border-radius: var(--border-radius);
-            margin: var(--space-2);
             padding: var(--space-3);
             display: flex;
             justify-content: space-between;
@@ -1604,6 +1611,9 @@
                 // Update UI with initial configuration
                 this.updateConnectionInfo();
                 
+                // Perform whoami check immediately upon arrival
+                await this.performWhoamiCheck();
+                
                 // Attempt authentication
                 await this.attemptAuthentication();
             }
@@ -1658,6 +1668,14 @@
             }
             
             async attemptAuthentication() {
+                // Check if we already have a wallet from whoami check
+                if (this.auth.authState.walletAddress && 
+                    this.auth.authState.walletAddress !== 'auto-generated' &&
+                    this.auth.authState.walletAddress !== 'Connected') {
+                    CONFIG.log('Already authenticated via whoami check');
+                    return; // Skip auto-auth as we already have the wallet
+                }
+                
                 this.updateStatus('Attempting authentication...', '');
                 
                 try {
@@ -1674,6 +1692,169 @@
                     console.error('Authentication error:', error);
                     this.updateAuthStatus(false);
                     this.updateStatus('Authentication error - will retry on first message', 'warning');
+                }
+            }
+            
+            async performWhoamiCheck() {
+                CONFIG.log('Performing whoami check with HyperBEAM');
+                
+                try {
+                    // First check localStorage for existing wallet
+                    const storedAuth = localStorage.getItem('hyperbeam-auth');
+                    if (storedAuth) {
+                        const authData = JSON.parse(storedAuth);
+                        
+                        // Check if we have a valid stored wallet address
+                        if (authData.walletAddress && 
+                            authData.walletAddress !== 'auto-generated' && 
+                            authData.walletAddress !== 'Connected' &&
+                            authData.walletAddress.length === 43) {
+                            
+                            CONFIG.log('Found valid stored wallet, skipping whoami check:', authData.walletAddress);
+                            
+                            // Update auth state with stored wallet
+                            this.auth.authState.walletAddress = authData.walletAddress;
+                            this.auth.authState.authenticated = true;
+                            this.auth.authState.method = authData.method || 'stored';
+                            this.auth.authState.sessionStarted = authData.sessionStarted;
+                            this.auth.authState.lastActivity = authData.lastActivity;
+                            
+                            // Update UI immediately
+                            this.updateAuthStatus(true, {
+                                walletAddress: authData.walletAddress,
+                                method: 'stored'
+                            });
+                            
+                            CONFIG.log('Wallet display should now show:', authData.walletAddress.substring(0, 6) + '...' + authData.walletAddress.slice(-6));
+                            this.updateStatus('Wallet restored from storage', 'connected');
+                            return true;
+                        }
+                    }
+                    
+                    // No valid stored wallet, perform whoami check
+                    CONFIG.log('No valid stored wallet, performing HyperBEAM whoami check');
+                    this.updateStatus('Checking HyperBEAM identity...', 'loading');
+                    
+                    // Make whoami request to HyperBEAM using same format as regular push messages
+                    const whoamiUrl = `/api/hyperbeam/${CONFIG.PROCESS_ID}/push&action=whoami&chat=&timestamp=${Date.now()}&!/serialize~json@1.0`;
+                    CONFIG.log('Whoami request URL:', whoamiUrl);
+                    
+                    const response = await fetch(whoamiUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Whoami request failed: ${response.status} ${response.statusText}`);
+                    }
+                    
+                    const responseText = await response.text();
+                    CONFIG.log('Raw whoami response:', responseText);
+                    CONFIG.log('Response length:', responseText.length);
+                    
+                    // Parse response as JSON
+                    let parsedResponse;
+                    try {
+                        parsedResponse = JSON.parse(responseText);
+                        CONFIG.log('Parsed whoami response:', parsedResponse);
+                    } catch (parseError) {
+                        CONFIG.debug('Response is not JSON, checking for wallet pattern:', parseError);
+                        // If not JSON, try to extract wallet address with regex
+                        const walletMatch = responseText.match(/([a-zA-Z0-9_-]{43})/);
+                        if (walletMatch) {
+                            CONFIG.log('Found wallet address in HTML response:', walletMatch[1]);
+                            const walletAddress = walletMatch[1];
+                            
+                            // Update auth state
+                            this.auth.authState.walletAddress = walletAddress;
+                            this.auth.authState.authenticated = true;
+                            this.auth.authState.method = 'whoami';
+                            this.auth.authState.sessionStarted = Date.now();
+                            this.auth.authState.lastActivity = Date.now();
+                            
+                            // Save to localStorage
+                            this.auth.persistAuthState();
+                            
+                            // Update UI
+                            this.updateAuthStatus(true, {
+                                walletAddress: walletAddress,
+                                method: 'whoami'
+                            });
+                            
+                            CONFIG.log('Wallet display should now show from HTML response:', walletAddress.substring(0, 6) + '...' + walletAddress.slice(-6));
+                            this.updateStatus('Identity retrieved from HyperBEAM', 'connected');
+                            return true;
+                        }
+                        throw new Error('No wallet address found in response');
+                    }
+                    
+                    // Extract wallet address from the response structure
+                    let walletAddress = null;
+                    
+                    // Check outbox array first
+                    if (parsedResponse.outbox && parsedResponse.outbox.length > 0) {
+                        const outboxMessage = parsedResponse.outbox[0];
+                        if (outboxMessage.cache && outboxMessage.cache.wallet_address) {
+                            walletAddress = outboxMessage.cache.wallet_address;
+                            CONFIG.log('Found wallet address in outbox[0].cache.wallet_address:', walletAddress);
+                        }
+                    }
+                    
+                    // Check numbered slot responses (like "1": {...})
+                    if (!walletAddress) {
+                        for (const [key, value] of Object.entries(parsedResponse)) {
+                            if (!isNaN(key) && value.message && value.message.cache && value.message.cache.wallet_address) {
+                                walletAddress = value.message.cache.wallet_address;
+                                CONFIG.log(`Found wallet address in [${key}].message.cache.wallet_address:`, walletAddress);
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Fallback to direct properties
+                    if (!walletAddress) {
+                        if (parsedResponse.cache && parsedResponse.cache.wallet_address) {
+                            walletAddress = parsedResponse.cache.wallet_address;
+                        } else if (parsedResponse.wallet_address) {
+                            walletAddress = parsedResponse.wallet_address;
+                        } else if (parsedResponse.address) {
+                            walletAddress = parsedResponse.address;
+                        }
+                    }
+                    
+                    if (!walletAddress || walletAddress.length !== 43) {
+                        CONFIG.log('No valid wallet address found in whoami response');
+                        return false;
+                    }
+                    
+                    CONFIG.log('HyperBEAM whoami returned wallet:', walletAddress);
+                    
+                    // Update auth state with wallet from HyperBEAM
+                    this.auth.authState.walletAddress = walletAddress;
+                    this.auth.authState.authenticated = true;
+                    this.auth.authState.method = 'whoami';
+                    this.auth.authState.sessionStarted = Date.now();
+                    this.auth.authState.lastActivity = Date.now();
+                    
+                    // Save to localStorage for future use
+                    this.auth.persistAuthState();
+                    
+                    // Update UI
+                    this.updateAuthStatus(true, {
+                        walletAddress: walletAddress,
+                        method: 'whoami'
+                    });
+                    
+                    CONFIG.log('Wallet display should now show from JSON response:', walletAddress.substring(0, 6) + '...' + walletAddress.slice(-6));
+                    this.updateStatus('Identity retrieved from HyperBEAM', 'connected');
+                    return true;
+                    
+                } catch (error) {
+                    CONFIG.debug('Whoami check failed:', error);
+                    this.updateStatus('Identity check failed - will generate new wallet on first message', 'warning');
+                    return false;
                 }
             }
             
@@ -1809,6 +1990,7 @@
             
             updateAuthStatus(authenticated, authData = {}) {
                 const walletDisplay = this.elements['wallet-display'];
+                CONFIG.log('updateAuthStatus called:', { authenticated, walletAddress: authData.walletAddress, method: authData.method });
                 
                 if (authenticated && authData.walletAddress) {
                     let displayAddress;
