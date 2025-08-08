@@ -335,9 +335,16 @@
         .hyperbeam-indicator {
             display: flex;
             align-items: center;
+            justify-content: center;
             gap: var(--space-1);
             font-size: var(--font-size-caption);
             color: var(--gray-600);
+            margin-top: var(--space-2);
+            padding: var(--space-1) var(--space-2);
+            border-radius: var(--border-radius);
+            background: var(--light-panel);
+            border: 1px solid var(--border-gray);
+            transition: all 0.3s ease;
         }
         
         .indicator-dot {
@@ -351,16 +358,17 @@
         .indicator-dot.connected {
             background: var(--success-green);
             box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.3);
-            animation: pulse 2s infinite;
+            animation: breathingConnected 3s ease-in-out infinite;
         }
         
         .indicator-dot.connecting {
             background: var(--warning-yellow);
-            animation: pulse 1s infinite;
+            animation: breathingConnecting 1.5s ease-in-out infinite;
         }
         
         .indicator-dot.error {
             background: #DC2626;
+            animation: breathingError 2s ease-in-out infinite;
         }
         
         .wallet-info {
@@ -371,9 +379,39 @@
         
         .wallet-info #wallet-display {
             background: var(--light-panel);
-            padding: 2px 6px;
-            border-radius: 2px;
+            padding: var(--space-1) var(--space-2);
+            border-radius: var(--border-radius);
             border: 1px solid var(--border-gray);
+            transition: all 0.2s ease;
+            position: relative;
+        }
+        
+        .wallet-info #wallet-display:hover {
+            background: var(--background-white);
+            border-color: var(--accent-orange);
+            transform: scale(1.05);
+        }
+        
+        .wallet-info #wallet-display.no-wallet::after {
+            content: 'Send a message, HyperBEAM will generate and assign you your wallet';
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--primary-black);
+            color: var(--background-white);
+            padding: var(--space-1) var(--space-2);
+            border-radius: var(--border-radius);
+            font-size: var(--font-size-caption);
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+            z-index: 1000;
+        }
+        
+        .wallet-info #wallet-display.no-wallet:hover::after {
+            opacity: 1;
         }
         
         .chat-controls {
@@ -605,10 +643,11 @@
         
         /* Input Area */
         .input-area {
-            padding: var(--space-3);
+            padding: var(--space-3) var(--space-3) var(--space-4) var(--space-3);
             border-top: 1px solid var(--border-gray);
             background: var(--background-white);
-            min-height: 80px;
+            min-height: 100px;
+            margin-bottom: var(--space-2);
         }
         
         .input-group {
@@ -665,16 +704,51 @@
         .input-wrapper::after {
             content: 'Press Enter to send';
             position: absolute;
-            bottom: -20px;
-            left: 0;
+            bottom: -40px;
+            right: 0;
             font-size: var(--font-size-caption);
             color: var(--gray-400);
             opacity: 0;
             transition: opacity 0.3s ease;
+            padding: var(--space-1) 0;
         }
         
         .input-wrapper:focus-within::after {
             opacity: 1;
+        }
+        
+        
+        .input-wrapper::before {
+            content: '';
+            position: absolute;
+            bottom: -40px;
+            left: 0;
+            font-size: var(--font-size-caption);
+            color: var(--gray-400);
+            opacity: 1;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: var(--space-1);
+            padding: var(--space-1) 0;
+        }
+        
+        .input-wrapper.status-connected::before {
+            /* Content dynamically set by JavaScript */
+            color: var(--success-green);
+            animation: breathingConnectedText 3s ease-in-out infinite;
+        }
+        
+        .input-wrapper.status-connecting::before {
+            content: '● Connecting...';
+            color: var(--warning-yellow);
+            animation: breathingConnectingText 1.5s ease-in-out infinite;
+        }
+        
+        .input-wrapper.status-error::before {
+            content: '● Connection Lost';
+            color: #DC2626;
+            animation: breathingErrorText 2s ease-in-out infinite;
         }
         
         /* Send Button with Enhanced States */
@@ -1123,46 +1197,6 @@
             /* Header styles removed */
         }
         
-        /* Toast Notifications (replacing status bar) */
-        .toast-notification {
-            position: fixed;
-            top: var(--space-3);
-            right: var(--space-3);
-            background: var(--primary-black);
-            color: var(--background-white);
-            padding: var(--space-3) var(--space-4);
-            border-radius: 8px;
-            font-size: var(--font-size-body);
-            font-weight: var(--font-weight-medium);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            transform: translateX(100%);
-            opacity: 0;
-            transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-            z-index: 1000;
-            max-width: 300px;
-        }
-        
-        .toast-notification.show {
-            transform: translateX(0);
-            opacity: 1;
-        }
-        
-        .toast-notification.connected {
-            background: var(--success-green);
-        }
-        
-        .toast-notification.error {
-            background: #DC2626;
-        }
-        
-        .toast-notification.warning {
-            background: var(--warning-yellow);
-            color: var(--primary-black);
-        }
-        
-        .toast-notification.loading {
-            background: var(--accent-orange);
-        }
         
         /* Enhanced Animations & Micro-interactions */
         @keyframes messageSlideIn {
@@ -1200,6 +1234,70 @@
         @keyframes spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
+        }
+        
+        @keyframes breathingConnected {
+            0%, 100% { 
+                transform: scale(1);
+                box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.3);
+                opacity: 1;
+            }
+            50% { 
+                transform: scale(1.15);
+                box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.1);
+                opacity: 0.8;
+            }
+        }
+        
+        @keyframes breathingConnecting {
+            0%, 100% { 
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% { 
+                transform: scale(1.2);
+                opacity: 0.6;
+            }
+        }
+        
+        @keyframes breathingError {
+            0%, 100% { 
+                transform: scale(1);
+                opacity: 1;
+                box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4);
+            }
+            50% { 
+                transform: scale(1.1);
+                opacity: 0.7;
+                box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.2);
+            }
+        }
+        
+        @keyframes breathingConnectedText {
+            0%, 100% { 
+                opacity: 1;
+            }
+            50% { 
+                opacity: 0.7;
+            }
+        }
+        
+        @keyframes breathingConnectingText {
+            0%, 100% { 
+                opacity: 1;
+            }
+            50% { 
+                opacity: 0.5;
+            }
+        }
+        
+        @keyframes breathingErrorText {
+            0%, 100% { 
+                opacity: 1;
+            }
+            50% { 
+                opacity: 0.6;
+            }
         }
         
         @keyframes spinBounce {
@@ -1350,10 +1448,6 @@
             <div class="chat-header">
                 <div class="chat-title">Live Chat History</div>
                 <div class="status-bar">
-                    <div class="hyperbeam-indicator" id="hyperbeam-indicator">
-                        <div class="indicator-dot" id="indicator-dot"></div>
-                        <span id="indicator-text">Connecting...</span>
-                    </div>
                     <div class="wallet-info" id="wallet-info">
                         <span id="wallet-display">No wallet</span>
                     </div>
@@ -1456,8 +1550,8 @@
             getUIReferences() {
                 const ids = [
                     'messages', 'message-input', 'send-btn', 'stat-sent',
-                    'stat-received', 'stat-pending', 'stat-total', 'hyperbeam-indicator',
-                    'indicator-dot', 'indicator-text', 'wallet-info', 'wallet-display', 'username-input',
+                    'stat-received', 'stat-pending', 'stat-total',
+                    'wallet-info', 'wallet-display', 'username-input',
                     'process-id', 'current-slot', 'avg-response-time'
                 ];
                 
@@ -1543,6 +1637,23 @@
                     this.updateAuthStatus(false);
                 });
                 
+                // Wallet update from push response
+                window.addEventListener('hyperbeam-wallet-update', (e) => {
+                    const { walletAddress, source } = e.detail;
+                    CONFIG.debug(`Wallet update from ${source}:`, walletAddress);
+                    
+                    // Update auth system internal state
+                    if (this.auth && walletAddress && walletAddress !== 'Connected') {
+                        this.auth.updateWalletAddress(walletAddress);
+                    }
+                    
+                    // Update auth status and UI indicators
+                    this.updateAuthStatus(true, {
+                        walletAddress: walletAddress,
+                        method: source || 'push-response'
+                    });
+                });
+                
                 CONFIG.log('Event listeners set up');
             }
             
@@ -1555,12 +1666,6 @@
                     if (result.success) {
                         this.updateAuthStatus(true, result);
                         this.updateStatus(`Authenticated using ${result.method}`, 'connected');
-                        
-                        if (result.walletAddress) {
-                            const walletEl = this.elements['wallet-address'];
-                            walletEl.textContent = result.walletAddress.substring(0, 20) + '...';
-                            walletEl.setAttribute('data-full-address', result.walletAddress);
-                        }
                     } else {
                         this.updateAuthStatus(false);
                         this.updateStatus('Authentication failed - will retry on first message', 'warning');
@@ -1610,8 +1715,6 @@
                         this.stats.sent++;
                         this.updateStatsWithAnimation('sent');
                         
-                        // Show success toast in top-right corner
-                        this.showToast('Message sent successfully', 'connected');
                         this.updateStatus('Message delivered', 'connected');
                         
                         // Add success animation to send button
@@ -1654,36 +1757,92 @@
             }
             
             updateHyperBEAMStatus(status, text) {
-                const dot = this.elements['indicator-dot'];
-                const textEl = this.elements['indicator-text'];
+                const inputWrapper = document.querySelector('.input-wrapper');
                 
-                if (dot && textEl) {
+                if (inputWrapper) {
                     // Remove all status classes
-                    dot.classList.remove('connected', 'connecting', 'error');
+                    inputWrapper.classList.remove('status-connected', 'status-connecting', 'status-error');
                     
-                    // Add new status
+                    // Add new status with domain-specific styling
                     if (status !== 'disconnected') {
-                        dot.classList.add(status);
+                        inputWrapper.classList.add(`status-${status}`);
+                        
+                        // Update the connected status to show the domain
+                        if (status === 'connected' && this.api) {
+                            const currentNodeUrl = this.api.getCurrentNodeUrl();
+                            let domain = 'localhost:8734'; // Default for proxy
+                            
+                            // Extract domain from backup nodes or keep localhost for proxy
+                            if (currentNodeUrl !== '/api/hyperbeam') {
+                                try {
+                                    const url = new URL(currentNodeUrl);
+                                    domain = url.hostname;
+                                } catch (e) {
+                                    domain = currentNodeUrl.replace(/^https?:\/\//, '').split('/')[0];
+                                }
+                            }
+                            
+                            // Update CSS with dynamic domain
+                            this.updateConnectedStatusDomain(domain);
+                        }
                     }
-                    
-                    textEl.textContent = text;
                 }
+            }
+            
+            updateConnectedStatusDomain(domain) {
+                // Create or update a dynamic style element
+                let styleElement = document.getElementById('dynamic-hyperbeam-status');
+                if (!styleElement) {
+                    styleElement = document.createElement('style');
+                    styleElement.id = 'dynamic-hyperbeam-status';
+                    document.head.appendChild(styleElement);
+                }
+                
+                styleElement.textContent = `
+                    .input-wrapper.status-connected::before {
+                        content: '● ${domain}';
+                        color: var(--success-green);
+                        animation: breathingConnectedText 3s ease-in-out infinite;
+                    }
+                `;
             }
             
             updateAuthStatus(authenticated, authData = {}) {
                 const walletDisplay = this.elements['wallet-display'];
                 
                 if (authenticated && authData.walletAddress) {
-                    // Update wallet display in status bar
-                    const shortAddress = authData.walletAddress.substring(0, 8) + '...' + authData.walletAddress.substring(-6);
-                    walletDisplay.textContent = shortAddress;
-                    walletDisplay.title = authData.walletAddress; // Full address on hover
+                    let displayAddress;
+                    
+                    // Special handling for auto-generated addresses
+                    if (authData.walletAddress === 'auto-generated') {
+                        displayAddress = 'auto-generated';
+                    } else {
+                        // Update wallet display in status bar - first 6 + last 6 characters
+                        displayAddress = authData.walletAddress.substring(0, 6) + '...' + authData.walletAddress.substring(-6);
+                    }
+                    
+                    walletDisplay.textContent = displayAddress;
+                    walletDisplay.title = 'Click to copy wallet address'; // Tooltip
+                    walletDisplay.style.cursor = 'pointer';
+                    walletDisplay.classList.remove('no-wallet'); // Remove no-wallet class
+                    
+                    // Add click handler for copying
+                    walletDisplay.onclick = () => {
+                        copyToClipboard(authData.walletAddress, 'Wallet Address');
+                    };
+                    
+                    // Store full address for copying
+                    walletDisplay.setAttribute('data-full-address', authData.walletAddress);
                     
                     // Update HyperBEAM status to show successful connection
                     this.updateHyperBEAMStatus('connected', 'HyperBEAM Connected');
                 } else {
                     walletDisplay.textContent = 'No wallet';
                     walletDisplay.title = '';
+                    walletDisplay.style.cursor = 'default';
+                    walletDisplay.onclick = null;
+                    walletDisplay.removeAttribute('data-full-address');
+                    walletDisplay.classList.add('no-wallet'); // Add no-wallet class for tooltip
                     
                     // Update HyperBEAM status to show authentication needed
                     this.updateHyperBEAMStatus('connecting', 'Authentication needed');
@@ -1792,74 +1951,15 @@
                 // Since status bar was removed, just log status updates
                 CONFIG.debug(`Status: ${message} (${type})`);
                 
-                // Show important status messages as toast notifications
-                if (type === 'error' || type === 'warning') {
-                    this.showToast(message, type);
-                }
             }
             
-            showToast(message, type = '') {
-                // Create or update toast notification for important status updates
-                let toast = document.querySelector('.toast-notification');
-                if (!toast) {
-                    toast = document.createElement('div');
-                    toast.className = 'toast-notification';
-                    document.body.appendChild(toast);
-                }
-                
-                toast.textContent = message;
-                toast.className = `toast-notification ${type} show`;
-                
-                // Auto-hide after 3 seconds
-                setTimeout(() => {
-                    toast.classList.remove('show');
-                }, 3000);
-            }
             
             showError(message) {
                 console.error('Application Error:', message);
-                this.showNotificationMessage(message, 'error');
             }
             
             showSuccessMessage(message) {
-                this.showNotificationMessage(message, 'success');
-            }
-            
-            showNotificationMessage(message, type = 'error') {
-                const messagesEl = this.elements.messages || document.getElementById('messages');
-                if (!messagesEl) return;
-                
-                // Remove any existing notification of the same type
-                const existingNotification = messagesEl.querySelector(`.${type}-message`);
-                if (existingNotification) {
-                    existingNotification.remove();
-                }
-                
-                const notificationEl = document.createElement('div');
-                notificationEl.className = `${type}-message`;
-                
-                notificationEl.innerHTML = `
-                    <strong>${type === 'error' ? 'Oops!' : 'Success!'}</strong> ${message}
-                    <button onclick="this.parentElement.remove()" 
-                            style="float: right; background: none; border: none; color: inherit; cursor: pointer; font-size: 18px; line-height: 1;"
-                            title="Close">×</button>
-                `;
-                
-                messagesEl.appendChild(notificationEl);
-                
-                // Auto-remove after appropriate time
-                const autoRemoveTime = type === 'success' ? 3000 : 8000;
-                setTimeout(() => {
-                    if (notificationEl.parentElement) {
-                        notificationEl.style.opacity = '0';
-                        notificationEl.style.transform = 'translateX(100%)';
-                        setTimeout(() => notificationEl.remove(), 300);
-                    }
-                }, autoRemoveTime);
-                
-                if (this.chat) {
-                    this.chat.scrollToBottom();
-                }
+                console.log('Success:', message);
             }
         }
         
@@ -1939,59 +2039,22 @@
             }
         }
 
-        // Helper function for copy to clipboard with delightful feedback
+        // Helper function for copy to clipboard (silent)
         function copyToClipboard(text, label = 'Text') {
             if (!text || text === 'Loading...' || text === '-' || text === 'Generating...') {
                 return;
             }
             
             navigator.clipboard.writeText(text).then(() => {
-                // Create temporary success indicator
-                const indicator = document.createElement('div');
-                indicator.innerHTML = `${label} copied!`;
-                indicator.style.cssText = `
-                    position: fixed;
-                    top: 20px;
-                    right: 20px;
-                    background: var(--success-green);
-                    color: white;
-                    padding: 12px 20px;
-                    border-radius: 4px;
-                    z-index: 1000;
-                    font-family: var(--font-family);
-                    font-size: 14px;
-                    font-weight: 500;
-                    box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
-                    animation: slideIn 0.3s ease-out;
-                `;
-                
-                document.body.appendChild(indicator);
-                
-                setTimeout(() => {
-                    indicator.style.transform = 'translateX(100%)';
-                    indicator.style.opacity = '0';
-                    setTimeout(() => indicator.remove(), 300);
-                }, 2000);
-                
+                console.log(`${label} copied to clipboard`);
             }).catch(() => {
                 console.warn('Could not copy to clipboard');
             });
         }
         
-        // Add CSS for copy notification animation
+        // Add CSS for kbd elements
         const style = document.createElement('style');
         style.textContent = `
-            @keyframes slideIn {
-                from {
-                    transform: translateX(100%);
-                    opacity: 0;
-                }
-                to {
-                    transform: translateX(0);
-                    opacity: 1;
-                }
-            }
-            
             kbd {
                 background: var(--light-panel);
                 border: 1px solid var(--border-gray);
