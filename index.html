@@ -1818,7 +1818,7 @@
                         displayAddress = 'auto-generated';
                     } else {
                         // Update wallet display in status bar - first 6 + last 6 characters
-                        displayAddress = authData.walletAddress.substring(0, 6) + '...' + authData.walletAddress.substring(-6);
+                        displayAddress = authData.walletAddress.substring(0, 6) + '...' + authData.walletAddress.slice(-6);
                     }
                     
                     walletDisplay.textContent = displayAddress;
@@ -1915,9 +1915,13 @@
                     if (slot !== null && this.elements['current-slot']) {
                         this.elements['current-slot'].textContent = slot;
                         CONFIG.debug(`Current slot: ${slot}`);
+                        // Update HyperBEAM status to connected since at-slot returned 200
+                        this.updateHyperBEAMStatus('connected', 'HyperBEAM Connected');
                     }
                 } catch (error) {
                     CONFIG.debug('Failed to update current slot:', error);
+                    // Update HyperBEAM status to error since at-slot failed
+                    this.updateHyperBEAMStatus('error', 'Connection Lost');
                 }
             }
             
@@ -1931,17 +1935,7 @@
                 // Update performance metrics and slot tracking every 5 seconds
                 setInterval(() => {
                     this.updatePerformanceMetrics();
-                    this.updateCurrentSlot();
-                    
-                    // Update HyperBEAM connection status
-                    if (this.api) {
-                        const isConnected = this.api.isConnected && this.api.isConnected();
-                        if (isConnected) {
-                            this.updateHyperBEAMStatus('connected', 'HyperBEAM Connected');
-                        } else {
-                            this.updateHyperBEAMStatus('error', 'Connection Lost');
-                        }
-                    }
+                    this.updateCurrentSlot(); // This now handles HyperBEAM status based on at-slot responses
                 }, 5000);
                 
                 CONFIG.log('Periodic updates started');
