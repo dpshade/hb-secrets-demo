@@ -253,6 +253,195 @@
             opacity: 1;
         }
         
+        /* Chatroom ID editing styles - DISABLED
+        .info-value.editable {
+            position: relative;
+        }
+        
+        .info-value.editable::after {
+            content: '✏️ Click to edit';
+        }
+        
+        .info-value.editable:hover {
+            background: var(--accent-orange);
+            color: var(--background-white);
+            border-color: var(--accent-orange);
+        }
+        
+        .info-value.editable:hover::after {
+            content: '✏️ Edit chatroom';
+            background: var(--accent-orange);
+            color: var(--background-white);
+        }
+        
+        Modal styles for confirmation dialog
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.3s ease-out;
+        }
+        
+        .modal-content {
+            background-color: var(--background-white);
+            margin: 15% auto;
+            padding: var(--space-4);
+            border: 1px solid var(--border-gray);
+            border-radius: var(--border-radius);
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        .modal h3 {
+            margin: 0 0 var(--space-3) 0;
+            color: var(--primary-black);
+            font-size: var(--font-size-h3);
+            font-weight: var(--font-weight-bold);
+        }
+        
+        .modal p {
+            margin: 0 0 var(--space-3) 0;
+            color: var(--gray-600);
+            line-height: 1.5;
+        }
+        
+        .modal input {
+            width: 100%;
+            padding: var(--space-2);
+            border: 1px solid var(--border-gray);
+            border-radius: var(--border-radius);
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: var(--font-size-caption);
+            margin-bottom: var(--space-3);
+        }
+        
+        .modal input:focus {
+            outline: 2px solid var(--accent-orange);
+            border-color: var(--accent-orange);
+        }
+        
+        .modal-actions {
+            display: flex;
+            gap: var(--space-2);
+            justify-content: flex-end;
+        }
+        
+        .btn-cancel {
+            background: var(--gray-400);
+            color: var(--background-white);
+            border: none;
+            padding: var(--space-2) var(--space-3);
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .btn-cancel:hover {
+            background: var(--gray-500);
+        }
+        
+        .btn-confirm {
+            background: var(--accent-orange);
+            color: var(--background-white);
+            border: none;
+            padding: var(--space-2) var(--space-3);
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .btn-confirm:hover {
+            background: #E55A00;
+        }
+        
+        .warning-text {
+            color: var(--accent-orange);
+            font-weight: var(--font-weight-medium);
+            margin-bottom: var(--space-2);
+        }
+        */
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        @keyframes slideIn {
+            from { 
+                opacity: 0;
+                transform: translateY(-20px) scale(0.9);
+            }
+            to { 
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+        
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+        
+        /* Export Section */
+        .export-section {
+            margin-top: var(--space-3);
+            padding-top: var(--space-2);
+            border-top: 1px solid var(--border-gray);
+        }
+        
+        .export-button {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-1);
+            padding: var(--space-2);
+            background: linear-gradient(135deg, var(--accent-orange), #FF8533);
+            color: var(--background-white);
+            border: none;
+            border-radius: var(--border-radius);
+            font-family: var(--font-family);
+            font-size: var(--font-size-body);
+            font-weight: var(--font-weight-medium);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .export-button:hover {
+            background: linear-gradient(135deg, #E55A00, var(--accent-orange));
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(246, 103, 0, 0.3);
+        }
+        
+        .export-button:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 6px rgba(246, 103, 0, 0.3);
+        }
+        
+        .export-button:disabled {
+            background: var(--gray-400);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .export-button svg {
+            transition: transform 0.2s ease;
+        }
+        
+        .export-button:hover svg {
+            transform: scale(1.1);
+        }
+        
         /* Enhanced Statistics Grid */
         .stats-grid {
             display: grid;
@@ -1434,8 +1623,8 @@
                     <!-- Technical Info beneath stats -->
                     <div class="tech-info">
                         <div class="info-item">
-                            <div class="info-label">Process ID:</div>
-                            <div class="info-value" id="process-id" onclick="copyToClipboard(this.getAttribute('data-full-id') || this.textContent, 'Process ID')">Loading...</div>
+                            <div class="info-label">Chatroom ID (Process ID):</div>
+                            <div class="info-value" id="process-id" onclick="copyToClipboard(this.getAttribute('data-full-id') || this.textContent, 'Process ID')" title="Click to copy">Loading...</div>
                         </div>
                         <div class="info-item">
                             <div class="info-label">Current Slot:</div>
@@ -1444,6 +1633,17 @@
                         <div class="info-item">
                             <div class="info-label">Avg Response:</div>
                             <div class="info-value" id="avg-response-time">-</div>
+                        </div>
+                        
+                        <!-- Export Wallet Button -->
+                        <div class="export-section">
+                            <button id="export-wallet-btn" class="export-button" onclick="exportWallet()" title="Export disabled - functionality not working" disabled>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M14 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.89 22 5.99 22H18C19.1 22 20 21.1 20 20V8L14 2ZM18 20H6V4H13V9H18V20Z" fill="currentColor"/>
+                                    <path d="M8 15.01L8 17L16 17L16 15.01L12 19.01L8 15.01Z" fill="currentColor"/>
+                                </svg>
+                                <span>Export Wallet</span>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1480,7 +1680,7 @@
                             id="message-input" 
                             placeholder="What's on your mind?"
                             maxlength="280"
-                            autofocus
+                            autocomplete="off"
                         >
                     </div>
                     <button id="send-btn" class="send-button" type="button">
@@ -1611,6 +1811,8 @@
                 // Update UI with initial configuration
                 this.updateConnectionInfo();
                 
+                // Process ID editing disabled
+                
                 // Perform whoami check immediately upon arrival
                 await this.performWhoamiCheck();
                 
@@ -1704,13 +1906,31 @@
                     if (storedAuth) {
                         const authData = JSON.parse(storedAuth);
                         
-                        // Check if we have a valid stored wallet address
+                        // Check if we have a valid stored wallet address AND keyid
                         if (authData.walletAddress && 
                             authData.walletAddress !== 'auto-generated' && 
                             authData.walletAddress !== 'Connected' &&
-                            authData.walletAddress.length === 43) {
+                            authData.walletAddress.length === 43 &&
+                            authData.keyid) {
                             
-                            CONFIG.log('Found valid stored wallet, skipping whoami check:', authData.walletAddress);
+                            CONFIG.log('Found valid stored wallet with keyid, importing to HyperBEAM memory:', authData.walletAddress);
+                            
+                            // Get stored wallet data and import to HyperBEAM memory
+                            const storedWallet = this.auth.getStoredWallet();
+                            if (storedWallet && storedWallet.walletData) {
+                                this.updateStatus('Importing wallet to HyperBEAM memory...', 'loading');
+                                
+                                try {
+                                    const importResult = await this.api.importWalletToMemory(storedWallet.walletData);
+                                    if (importResult.success) {
+                                        CONFIG.log('Wallet successfully imported to HyperBEAM memory');
+                                    } else {
+                                        CONFIG.debug('Failed to import wallet to HyperBEAM memory:', importResult.error);
+                                    }
+                                } catch (error) {
+                                    CONFIG.debug('Error importing wallet to HyperBEAM memory:', error);
+                                }
+                            }
                             
                             // Update auth state with stored wallet
                             this.auth.authState.walletAddress = authData.walletAddress;
@@ -1718,6 +1938,7 @@
                             this.auth.authState.method = authData.method || 'stored';
                             this.auth.authState.sessionStarted = authData.sessionStarted;
                             this.auth.authState.lastActivity = authData.lastActivity;
+                            this.auth.authState.keyid = authData.keyid; // Restore keyid for export
                             
                             // Update UI immediately
                             this.updateAuthStatus(true, {
@@ -1726,14 +1947,20 @@
                             });
                             
                             CONFIG.log('Wallet display should now show:', authData.walletAddress.substring(0, 6) + '...' + authData.walletAddress.slice(-6));
-                            this.updateStatus('Wallet restored from storage', 'connected');
+                            this.updateStatus('Wallet restored and imported to HyperBEAM memory', 'connected');
                             return true;
                         }
                     }
                     
-                    // No valid stored wallet, perform whoami check
-                    CONFIG.log('No valid stored wallet, performing HyperBEAM whoami check');
-                    this.updateStatus('Checking HyperBEAM identity...', 'loading');
+                    // No valid stored wallet with keyid, perform whoami check and capture keyid
+                    CONFIG.log('No valid stored wallet with keyid, performing HyperBEAM whoami check and keyid capture');
+                    this.updateStatus('Identifying HyperBEAM wallet...', 'loading');
+                    
+                    // Step 1: List secrets before whoami to establish baseline
+                    CONFIG.log('Listing secrets before whoami...');
+                    const beforeSecrets = await this.api.listSecrets();
+                    const secretsBefore = beforeSecrets.success ? beforeSecrets.secrets : [];
+                    CONFIG.log('Secrets before whoami:', secretsBefore);
                     
                     // Make whoami request to HyperBEAM using same format as regular push messages
                     const whoamiUrl = `/api/hyperbeam/${CONFIG.PROCESS_ID}/push&action=whoami&chat=&timestamp=${Date.now()}&!/serialize~json@1.0`;
@@ -1767,12 +1994,40 @@
                             CONFIG.log('Found wallet address in HTML response:', walletMatch[1]);
                             const walletAddress = walletMatch[1];
                             
+                            // Step 2: List secrets after whoami to detect the keyid for this wallet
+                            CONFIG.log('Listing secrets after HTML whoami to capture keyid...');
+                            const afterSecrets = await this.api.listSecrets();
+                            let detectedKeyid = null;
+                            
+                            if (afterSecrets.success) {
+                                const secretsAfter = afterSecrets.secrets;
+                                CONFIG.log('Secrets after HTML whoami:', secretsAfter);
+                                
+                                // Find new secrets by comparing before/after lists
+                                const newSecrets = secretsAfter.filter(secret => !secretsBefore.includes(secret));
+                                if (newSecrets.length > 0) {
+                                    detectedKeyid = newSecrets[0]; // Take the first new secret
+                                    CONFIG.log('Detected new keyid for wallet export (HTML path):', detectedKeyid);
+                                } else {
+                                    // If no new secrets, the wallet might already exist
+                                    if (secretsAfter.length > 0) {
+                                        detectedKeyid = secretsAfter[secretsAfter.length - 1]; // Use the most recent
+                                        CONFIG.log('No new keyid detected, using most recent existing keyid (HTML path):', detectedKeyid);
+                                    } else {
+                                        CONFIG.log('No keyid available for wallet export (HTML path)');
+                                    }
+                                }
+                            } else {
+                                CONFIG.log('Failed to list secrets after HTML whoami for keyid detection');
+                            }
+                            
                             // Update auth state
                             this.auth.authState.walletAddress = walletAddress;
                             this.auth.authState.authenticated = true;
                             this.auth.authState.method = 'whoami';
                             this.auth.authState.sessionStarted = Date.now();
                             this.auth.authState.lastActivity = Date.now();
+                            this.auth.authState.keyid = detectedKeyid; // Store keyid for export
                             
                             // Save to localStorage
                             this.auth.persistAuthState();
@@ -1831,12 +2086,41 @@
                     
                     CONFIG.log('HyperBEAM whoami returned wallet:', walletAddress);
                     
+                    // Step 2: List secrets after whoami to detect the keyid for this wallet
+                    CONFIG.log('Listing secrets after whoami to capture keyid...');
+                    const afterSecrets = await this.api.listSecrets();
+                    let detectedKeyid = null;
+                    
+                    if (afterSecrets.success) {
+                        const secretsAfter = afterSecrets.secrets;
+                        CONFIG.log('Secrets after whoami:', secretsAfter);
+                        
+                        // Find new secrets by comparing before/after lists
+                        const newSecrets = secretsAfter.filter(secret => !secretsBefore.includes(secret));
+                        if (newSecrets.length > 0) {
+                            detectedKeyid = newSecrets[0]; // Take the first new secret
+                            CONFIG.log('Detected new keyid for wallet export:', detectedKeyid);
+                        } else {
+                            // If no new secrets, the wallet might already exist - try to find existing one
+                            // This could happen if HyperBEAM reuses an existing wallet
+                            if (secretsAfter.length > 0) {
+                                detectedKeyid = secretsAfter[secretsAfter.length - 1]; // Use the most recent
+                                CONFIG.log('No new keyid detected, using most recent existing keyid:', detectedKeyid);
+                            } else {
+                                CONFIG.log('No keyid available for wallet export');
+                            }
+                        }
+                    } else {
+                        CONFIG.log('Failed to list secrets after whoami for keyid detection');
+                    }
+                    
                     // Update auth state with wallet from HyperBEAM
                     this.auth.authState.walletAddress = walletAddress;
                     this.auth.authState.authenticated = true;
                     this.auth.authState.method = 'whoami';
                     this.auth.authState.sessionStarted = Date.now();
                     this.auth.authState.lastActivity = Date.now();
+                    this.auth.authState.keyid = detectedKeyid; // Store keyid for export
                     
                     // Save to localStorage for future use
                     this.auth.persistAuthState();
@@ -1936,6 +2220,8 @@
                     this.updateHyperBEAMStatus('connected', 'HyperBEAM Connected');
                 }, 2000);
             }
+            
+            // setupProcessIdHandler() - disabled
             
             updateHyperBEAMStatus(status, text) {
                 const inputWrapper = document.querySelector('.input-wrapper');
@@ -2215,6 +2501,21 @@
             }
         }
 
+        /* Process ID editing functionality - DISABLED
+        function editProcessId() {
+            // Functionality disabled
+            console.log('Chatroom ID editing is currently disabled');
+        }
+        
+        function closeEditModal() {
+            // Functionality disabled
+        }
+        
+        function confirmProcessIdChange() {
+            // Functionality disabled
+        }
+        */
+        
         // Helper function for copy to clipboard (silent)
         function copyToClipboard(text, label = 'Text') {
             if (!text || text === 'Loading...' || text === '-' || text === 'Generating...') {
@@ -2226,6 +2527,67 @@
             }).catch(() => {
                 console.warn('Could not copy to clipboard');
             });
+        }
+        
+        // Export wallet functionality
+        async function exportWallet() {
+            const exportBtn = document.getElementById('export-wallet-btn');
+            const originalText = exportBtn.querySelector('span').textContent;
+            
+            try {
+                // Disable button and show loading state
+                exportBtn.disabled = true;
+                exportBtn.querySelector('span').textContent = 'Exporting...';
+                
+                // Get stored wallet from client-side storage
+                const storedWallet = window.chatApp.auth.getStoredWallet();
+                if (!storedWallet) {
+                    throw new Error('No wallet data found. Please refresh to generate a new wallet.');
+                }
+                
+                CONFIG.log('Exporting wallet from client-side storage');
+                
+                // Create downloadable JSON file
+                const walletJson = JSON.stringify(storedWallet.walletData, null, 2);
+                const blob = new Blob([walletJson], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                
+                // Create download link
+                const downloadLink = document.createElement('a');
+                downloadLink.href = url;
+                downloadLink.download = `hyperbeam-wallet-${Date.now()}.json`;
+                downloadLink.style.display = 'none';
+                
+                // Add to document and trigger download
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+                
+                // Clean up URL object
+                URL.revokeObjectURL(url);
+                
+                // Show success feedback
+                exportBtn.querySelector('span').textContent = 'Downloaded!';
+                setTimeout(() => {
+                    exportBtn.querySelector('span').textContent = originalText;
+                    exportBtn.disabled = false;
+                }, 2000);
+                
+                CONFIG.log('Wallet export successful from client storage');
+                
+            } catch (error) {
+                CONFIG.log('Wallet export failed:', error);
+                
+                // Show error feedback
+                exportBtn.querySelector('span').textContent = 'Export Failed';
+                setTimeout(() => {
+                    exportBtn.querySelector('span').textContent = originalText;
+                    exportBtn.disabled = false;
+                }, 3000);
+                
+                // Show user-friendly error message
+                alert(`Wallet export failed: ${error.message}`);
+            }
         }
         
         // Add CSS for kbd elements

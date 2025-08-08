@@ -196,9 +196,13 @@ class HyperBEAMAPI {
     }
 
     /**
-     * Generate new wallet/secret with cookie-based authentication
+     * Generate new wallet/secret with cookie-based authentication and keyid detection
      */
     async generateSecret(options = {}) {
+        // Step 1: List secrets before generation
+        const beforeSecrets = await this.listSecrets();
+        const secretsBefore = beforeSecrets.success ? beforeSecrets.secrets : [];
+        
         const payload = {
             persist: options.persist || this.config.AUTH.COOKIE.PERSIST,
             'access-control': {
@@ -214,13 +218,83 @@ class HyperBEAMAPI {
             body: JSON.stringify(payload)
         });
 
-        if (response.ok && response.data) {
+        if (response.ok) {
             this.config.log('Secret generated successfully');
             
-            // Extract wallet address if available
-            if (response.data.address) {
-                this.walletAddress = response.data.address;
-                this.config.debug('Wallet address stored:', this.walletAddress);
+            // For persist=client, extract wallet data from headers
+            if (payload.persist === 'client') {
+                // Extract wallet address from headers
+                const walletAddress = response.headers['wallet-address'];
+                if (walletAddress) {
+                    this.walletAddress = walletAddress;
+                    this.config.debug('Wallet address from headers:', walletAddress);
+                }
+
+                // Extract wallet data from set-cookie header
+                const setCookieHeader = response.headers['set-cookie'];
+                if (setCookieHeader) {
+                    const walletCookieMatch = setCookieHeader.match(/wallet-[^=]+="([^"]+)"/);
+                    if (walletCookieMatch) {
+                        try {
+                            const walletData = JSON.parse(walletCookieMatch[1]);
+                            response.data = {
+                                address: walletAddress,
+                                walletData: walletData
+                            };
+                            this.config.log('Wallet data extracted from cookie for client persistence');
+                        } catch (error) {
+                            this.config.debug('Failed to parse wallet data from cookie:', error);
+                            // Initialize response data even if parsing fails
+                            response.data = {
+                                address: walletAddress
+                            };
+                        }
+                    }
+                } else {
+                    // Ensure response.data exists even if no cookie
+                    response.data = {
+                        address: walletAddress
+                    };
+                }
+
+                // Extract keyid from signature-input header
+                const signatureInput = response.headers['signature-input'];
+                if (signatureInput) {
+                    const keyidMatch = signatureInput.match(/keyid="([^"]+)"/);
+                    if (keyidMatch) {
+                        const keyid = keyidMatch[1];
+                        this.config.log('Detected keyid from signature headers:', keyid);
+                        response.data.secretKeyid = keyid;
+                        response.secretKeyid = keyid;
+                    }
+                }
+            } else if (response.data) {
+                // For other persist modes, extract wallet address from data
+                if (response.data.address) {
+                    this.walletAddress = response.data.address;
+                    this.config.debug('Wallet address stored:', this.walletAddress);
+                }
+                
+                // Step 2: List secrets after generation to find the new keyid
+                const afterSecrets = await this.listSecrets();
+                if (afterSecrets.success) {
+                    const secretsAfter = afterSecrets.secrets;
+                    
+                    // Find the new secret by comparing before/after lists
+                    const newSecrets = secretsAfter.filter(secret => !secretsBefore.includes(secret));
+                    if (newSecrets.length > 0) {
+                        const newSecretKeyid = newSecrets[0]; // Take the first new secret
+                        this.config.log('Detected new secret keyid:', newSecretKeyid);
+                        
+                        // Add the keyid to the response data
+                        response.data.secretKeyid = newSecretKeyid;
+                        response.secretKeyid = newSecretKeyid;
+                    } else {
+                        this.config.debug('No new secret detected in before/after comparison');
+                    }
+                } else {
+                    this.config.debug('Failed to list secrets after generation for keyid detection');
+                }
             }
         }
 
@@ -546,6 +620,145 @@ class HyperBEAMAPI {
         this.authHeaders.clear();
         this.walletAddress = null;
         this.config.log('Authentication state cleared');
+    }
+
+    /**
+     * List all available secrets in HyperBEAM
+     */
+    async listSecrets() {
+        this.config.debug('Listing available secrets');
+        
+        const response = await this.makeRequest(this.config.ENDPOINTS.SECRET_LIST, {
+            method: 'GET'
+        });
+
+        if (response.ok && response.data) {
+            // Parse the response to extract secret keyids
+            const secrets = [];
+            const data = response.data;
+            
+            // Look for numbered keys that contain secret: format
+            for (const [key, value] of Object.entries(data)) {
+                if (!isNaN(key) && typeof value === 'string' && value.startsWith('secret:')) {
+                    secrets.push(value);
+                }
+            }
+            
+            this.config.debug('Available secrets:', secrets);
+            return {
+                success: true,
+                secrets: secrets,
+                response: response
+            };
+        }
+
+        return {
+            success: false,
+            error: response.error || response.statusText,
+            response: response
+        };
+    }
+
+    /**
+     * Export wallet using keyid (POST method with authentication)
+     */
+    async exportWallet(keyid) {
+        if (!keyid) {
+            return {
+                success: false,
+                error: 'No keyid provided for export'
+            };
+        }
+
+        this.config.log('Attempting wallet export with keyid:', keyid);
+
+        // Use POST with JSON array format (the approach that worked in testing)
+        try {
+            const response = await this.makeRequest(this.config.ENDPOINTS.SECRET_EXPORT, {
+                method: 'POST',
+                body: JSON.stringify({ keyids: [keyid] })
+            });
+
+            if (response.ok && response.data) {
+                this.config.log('Wallet export successful');
+                return {
+                    success: true,
+                    wallet: response.data,
+                    response: response
+                };
+            } else if (response.status === 400 && response.data && 
+                       typeof response.data === 'string' && 
+                       response.data.includes('No wallets found')) {
+                return {
+                    success: false,
+                    error: 'Wallet not found or access denied. The wallet may have been created with different authentication.',
+                    keyid: keyid
+                };
+            } else {
+                return {
+                    success: false,
+                    error: `Export failed: ${response.statusText} (${response.status})`,
+                    keyid: keyid,
+                    response: response
+                };
+            }
+        } catch (error) {
+            this.config.debug('Wallet export error:', error);
+            return {
+                success: false,
+                error: `Export request failed: ${error.message}`,
+                keyid: keyid
+            };
+        }
+    }
+
+    /**
+     * Import wallet to HyperBEAM memory from client-side storage
+     */
+    async importWalletToMemory(walletData, options = {}) {
+        if (!walletData) {
+            return {
+                success: false,
+                error: 'No wallet data provided for import'
+            };
+        }
+
+        this.config.log('Importing wallet to HyperBEAM memory');
+
+        const payload = {
+            ...walletData,
+            persist: options.persist || 'in-memory', // Store in HyperBEAM memory
+            'access-control': {
+                device: this.config.AUTH.COOKIE.ACCESS_CONTROL_DEVICE
+            },
+            ...options
+        };
+
+        const response = await this.makeRequest(this.config.ENDPOINTS.SECRET_IMPORT, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (response.ok && response.data) {
+            this.config.log('Wallet imported to HyperBEAM memory successfully');
+            
+            if (response.data.address) {
+                this.walletAddress = response.data.address;
+                this.config.debug('Imported wallet address:', this.walletAddress);
+            }
+
+            return {
+                success: true,
+                address: response.data.address,
+                response: response
+            };
+        }
+
+        return {
+            success: false,
+            error: response.error || response.statusText,
+            response: response
+        };
     }
 
     /**

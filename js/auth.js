@@ -16,7 +16,8 @@ class AuthSystem {
             walletAddress: null,
             username: null,
             sessionStarted: null,
-            lastActivity: null
+            lastActivity: null,
+            keyid: null // Store keyid for wallet export
         };
         
         // Load persisted auth state
@@ -139,7 +140,7 @@ class AuthSystem {
         this.config.log('Generating new wallet');
         
         const response = await this.api.generateSecret({
-            persist: options.persist || 'client',
+            persist: options.persist || 'client', // Use client persistence to get full wallet data
             'access-control': {
                 device: this.config.AUTH.COOKIE.ACCESS_CONTROL_DEVICE
             },
@@ -147,11 +148,30 @@ class AuthSystem {
         });
 
         if (response.ok && response.data) {
+            // Get the secret keyid from the API's before/after detection
+            const keyid = response.secretKeyid || response.data.secretKeyid || null;
+            
+            if (keyid) {
+                this.config.log('Secret keyid detected for export:', keyid);
+            } else {
+                this.config.debug('No secret keyid detected during generation');
+            }
+
+            // Store the full wallet data client-side for later export
+            if (response.data.walletData) {
+                // For persist=client, we have the full wallet data
+                this.storeWalletClientSide(response.data.walletData, keyid);
+            } else {
+                // For other persist modes, store the address info
+                this.storeWalletClientSide(response.data, keyid);
+            }
+
             await this.handleSuccessfulAuth({
                 method: 'generated',
                 response: response,
                 walletAddress: response.data.address,
-                data: response.data
+                data: response.data,
+                keyid: keyid
             });
 
             return {
@@ -159,7 +179,8 @@ class AuthSystem {
                 method: 'generated',
                 walletAddress: response.data.address,
                 response: response,
-                isNewWallet: true
+                isNewWallet: true,
+                keyid: keyid
             };
         }
 
@@ -261,7 +282,8 @@ class AuthSystem {
             username: authData.username,
             sessionStarted: Date.now(),
             lastActivity: Date.now(),
-            data: authData.data
+            data: authData.data,
+            keyid: authData.keyid || this.authState.keyid // Preserve existing keyid if not provided
         };
 
         // Persist auth state
@@ -300,7 +322,8 @@ class AuthSystem {
             walletAddress: null,
             username: null,
             sessionStarted: null,
-            lastActivity: null
+            lastActivity: null,
+            keyid: null
         };
         
         this.currentMethod = null;
@@ -357,7 +380,8 @@ class AuthSystem {
                     walletAddress: this.authState.walletAddress,
                     username: this.authState.username,
                     sessionStarted: this.authState.sessionStarted,
-                    lastActivity: this.authState.lastActivity
+                    lastActivity: this.authState.lastActivity,
+                    keyid: this.authState.keyid // Store keyid for export functionality
                     // Note: Don't persist sensitive data like keys or full wallet data
                 };
                 
@@ -487,6 +511,65 @@ class AuthSystem {
         if (this.authState.authenticated) {
             this.authState.lastActivity = Date.now();
             this.persistAuthState();
+        }
+    }
+
+    /**
+     * Get stored keyid for wallet export
+     */
+    getKeyid() {
+        return this.authState.keyid;
+    }
+
+    /**
+     * Store wallet data client-side for export functionality
+     */
+    storeWalletClientSide(walletData, keyid = null) {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            try {
+                const walletInfo = {
+                    walletData: walletData,
+                    keyid: keyid,
+                    address: walletData.address,
+                    storedAt: Date.now()
+                };
+                
+                localStorage.setItem('hyperbeam-wallet', JSON.stringify(walletInfo));
+                this.config.log('Wallet stored client-side for export');
+            } catch (error) {
+                this.config.debug('Failed to store wallet client-side:', error);
+            }
+        }
+    }
+
+    /**
+     * Get stored wallet data from client-side storage
+     */
+    getStoredWallet() {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            try {
+                const stored = localStorage.getItem('hyperbeam-wallet');
+                if (stored) {
+                    return JSON.parse(stored);
+                }
+            } catch (error) {
+                this.config.debug('Failed to retrieve stored wallet:', error);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Clear stored wallet data
+     */
+    clearStoredWallet() {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            try {
+                localStorage.removeItem('hyperbeam-wallet');
+                this.config.debug('Stored wallet cleared');
+            } catch (error) {
+                this.config.debug('Failed to clear stored wallet:', error);
+            }
         }
     }
 }
