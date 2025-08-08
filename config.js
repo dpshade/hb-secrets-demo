@@ -14,7 +14,35 @@ const CONFIG = {
     ],
     
     // AO Process Configuration
-    PROCESS_ID: '7XRBQyTSrBFWvrsMyiEm-v1Z43MBp4K1jBkDFI6oZ44',
+    _processId: 'xN8_ogs9ZfznfG6Eg2508cukOz_f65HvOkIiT9RsKLI',
+    
+    get PROCESS_ID() {
+        return this._processId;
+    },
+    
+    set PROCESS_ID(newProcessId) {
+        if (!newProcessId || typeof newProcessId !== 'string') {
+            throw new Error('Process ID must be a non-empty string');
+        }
+        if (newProcessId.length !== 43) {
+            throw new Error('Process ID must be exactly 43 characters long');
+        }
+        if (!/^[a-zA-Z0-9_-]+$/.test(newProcessId)) {
+            throw new Error('Process ID can only contain letters, numbers, underscores, and hyphens');
+        }
+        
+        const oldProcessId = this._processId;
+        this._processId = newProcessId;
+        
+        this.log(`Process ID changed from ${oldProcessId.substring(0, 6)}... to ${newProcessId.substring(0, 6)}...`);
+        
+        // Dispatch event for components that need to know about the change
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('hyperbeam-process-id-changed', {
+                detail: { oldProcessId, newProcessId }
+            }));
+        }
+    },
     
     // API Endpoints
     ENDPOINTS: {
@@ -23,6 +51,7 @@ const CONFIG = {
         SECRET_IMPORT: '/~secret@1.0/import/~json@1.0/serialize',
         SECRET_COMMIT: '/~secret@1.0/commit/~json@1.0/serialize',
         SECRET_LIST: '/~secret@1.0/list/~json@1.0/serialize',
+        SECRET_EXPORT: '/~secret@1.0/export/~json@1.0/serialize',
         
         // Process Operations
         PROCESS_NOW: (processId) => `/${processId}/now/~json@1.0/serialize`,
@@ -103,6 +132,16 @@ const CONFIG = {
     
     // Debug/Logging Configuration
     DEBUG: window.location.search.includes('debug=1'),
+    
+    // Process ID management
+    updateProcessId: function(newProcessId) {
+        try {
+            this.PROCESS_ID = newProcessId;
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    },
     
     // Validation function
     validate: function() {

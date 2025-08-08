@@ -457,12 +457,16 @@ class ChatSystem {
         
         // Check if this message is from the current user - prioritize wallet address comparison
         let isOwnMessage = false;
-        if (messageWalletAddress && currentWalletAddress && messageWalletAddress !== 'auto-generated' && currentWalletAddress !== 'auto-generated') {
-            // Use wallet address comparison when both are available
+        if (messageWalletAddress && currentWalletAddress && 
+            messageWalletAddress !== 'auto-generated' && currentWalletAddress !== 'auto-generated' &&
+            messageWalletAddress.length === 43 && currentWalletAddress.length === 43) {
+            // Use wallet address comparison when both are valid 43-char addresses
             isOwnMessage = messageWalletAddress === currentWalletAddress;
+            this.config.debug(`History message own check via wallet: ${isOwnMessage} (${messageWalletAddress} vs ${currentWalletAddress})`);
         } else {
             // Fallback to username comparison
             isOwnMessage = username === currentUsername;
+            this.config.debug(`History message own check via username: ${isOwnMessage} (${username} vs ${currentUsername})`);
         }
         
         // If this message is from the current user, check for existing message
@@ -681,12 +685,16 @@ class ChatSystem {
         
         // Check if this message is from the current user - prioritize wallet address comparison
         let isOwnMessage = false;
-        if (messageWalletAddress && currentWalletAddress && messageWalletAddress !== 'auto-generated' && currentWalletAddress !== 'auto-generated') {
-            // Use wallet address comparison when both are available
+        if (messageWalletAddress && currentWalletAddress && 
+            messageWalletAddress !== 'auto-generated' && currentWalletAddress !== 'auto-generated' &&
+            messageWalletAddress.length === 43 && currentWalletAddress.length === 43) {
+            // Use wallet address comparison when both are valid 43-char addresses
             isOwnMessage = messageWalletAddress === currentWalletAddress;
+            this.config.debug(`Processing history own check via wallet: ${isOwnMessage} (${messageWalletAddress} vs ${currentWalletAddress})`);
         } else {
             // Fallback to username comparison
             isOwnMessage = username === currentUsername;
+            this.config.debug(`Processing history own check via username: ${isOwnMessage} (${username} vs ${currentUsername})`);
         }
         
         // If this message is from the current user, merge it with the existing UI message
@@ -889,25 +897,44 @@ class ChatSystem {
     updateMessageElement(messageEl, message) {
         const timestamp = new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         
-        // Determine if this is own message using wallet address or method/source
+        // Determine if this is own message using multiple methods
         let isOwnMessage = false;
         
-        // Check if we have wallet address info to compare
+        // Get current user info for comparison
         const currentWalletAddress = this.auth.getWalletAddress();
+        const usernameInput = document.getElementById('username-input');
+        const currentUsername = usernameInput?.value?.trim() || 'Chat User';
+        
+        // Method 1: Wallet address comparison (most reliable)
         if (message.walletAddress && currentWalletAddress && 
-            message.walletAddress !== 'auto-generated' && currentWalletAddress !== 'auto-generated') {
-            // Use wallet address comparison when available
+            message.walletAddress !== 'auto-generated' && currentWalletAddress !== 'auto-generated' &&
+            message.walletAddress.length === 43 && currentWalletAddress.length === 43) {
             isOwnMessage = message.walletAddress === currentWalletAddress;
-        } else {
-            // Fallback to method/source-based detection
-            isOwnMessage = message.method === 'direct-push' || message.source !== 'chat-history';
+            this.config.debug(`Own message check via wallet: ${message.walletAddress === currentWalletAddress} (${message.walletAddress} vs ${currentWalletAddress})`);
+        } 
+        // Method 2: Method/source-based detection (for sent messages)
+        else if (message.method === 'direct-push' || (message.source && message.source !== 'chat-history')) {
+            isOwnMessage = true;
+            this.config.debug(`Own message check via method/source: true (${message.method || message.source})`);
         }
+        // Method 3: Username comparison (fallback)
+        else if (message.author && currentUsername && message.author === currentUsername) {
+            isOwnMessage = true;
+            this.config.debug(`Own message check via username: true (${message.author} === ${currentUsername})`);
+        }
+        
+        this.config.debug(`Final own message determination: ${isOwnMessage} for message from ${message.author} (wallet: ${message.walletAddress})`);
         
         messageEl.classList.toggle('own-message', isOwnMessage);
         messageEl.classList.toggle('process-message', !isOwnMessage);
         
         // Get username, fallback to defaults
-        const username = message.author || (isOwnMessage ? 'You' : 'System');
+        let username = message.author || (isOwnMessage ? 'You' : 'System');
+        
+        // For own messages, show current username instead of 'You' to be consistent
+        if (isOwnMessage && currentUsername && currentUsername !== 'Chat User') {
+            username = currentUsername;
+        }
         
         // Remove all grouping logic for minimal style
         messageEl.classList.remove('grouped', 'last-in-group');
