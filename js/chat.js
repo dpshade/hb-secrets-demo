@@ -465,8 +465,8 @@ class ChatSystem {
             // Update grouping for all messages
             this.updateAllMessageGrouping();
             
-            // Scroll to bottom after all messages are displayed
-            this.scrollToBottom();
+            // Smooth scroll to bottom following message stagger animation (slower than messages)
+            this.scrollToBottom(true, 1200);
         }
         
         this.config.debug(`Displayed ${messages.length} messages`);
@@ -508,10 +508,8 @@ class ChatSystem {
             this.updateAllMessageGrouping();
             
             
-            // Scroll to bottom after animations complete
-            setTimeout(() => {
-                this.scrollToBottom();
-            }, Math.min(messages.length * 40, 500) + 300);
+            // Start smooth scroll immediately to follow the stagger animation (slower than messages)
+            this.scrollToBottom(true, Math.min(messages.length * 40, 500) + 700);
         }
         
         this.config.debug(`Displayed ${messages.length} messages with smooth transition`);
@@ -888,10 +886,52 @@ class ChatSystem {
     /**
      * Scroll chat to bottom
      */
-    scrollToBottom() {
+    scrollToBottom(smooth = false, duration = 900) {
         if (this.config.UI.AUTO_SCROLL && this.messageContainer) {
-            this.messageContainer.scrollTop = this.messageContainer.scrollHeight;
+            if (smooth) {
+                // Animate scroll to follow message stagger animation
+                this.animateScroll(this.messageContainer.scrollHeight, duration);
+            } else {
+                this.messageContainer.scrollTop = this.messageContainer.scrollHeight;
+            }
         }
+    }
+
+    /**
+     * Animate scroll to match message stagger timing
+     */
+    animateScroll(targetScrollTop, duration = 900) {
+        const container = this.messageContainer;
+        const startScrollTop = container.scrollTop;
+        const distance = targetScrollTop - startScrollTop;
+        const startTime = performance.now();
+
+        const animateStep = (currentTime) => {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            // Use easing function that matches message animation
+            const easeProgress = this.easeOutCubic(progress);
+            
+            container.scrollTop = startScrollTop + (distance * easeProgress);
+
+            if (progress < 1) {
+                requestAnimationFrame(animateStep);
+            } else {
+                // Ensure we're exactly at the bottom
+                container.scrollTop = container.scrollHeight;
+            }
+        };
+
+        requestAnimationFrame(animateStep);
+    }
+
+    /**
+     * Easing function for scroll - more gradual start to follow message stagger
+     */
+    easeOutCubic(t) {
+        // Slower start to follow message reveals, then speed up
+        return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
     }
 
     /**
