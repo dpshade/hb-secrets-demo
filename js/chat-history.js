@@ -259,12 +259,29 @@ class ChatHistory {
     }
 
     // Get chat statistics
-    async getStats() {
+    async getStats(currentUserWalletAddress = null) {
         const allMessages = await this.getAllChatHistory();
         const currentSlot = await this.getCurrentSlot();
         
+        // Calculate sent/received statistics
+        let sent = 0;
+        let received = 0;
+        let total = allMessages.length;
+        
+        if (currentUserWalletAddress) {
+            // Count messages from current user's wallet
+            sent = allMessages.filter(msg => 
+                msg.walletAddress && msg.walletAddress === currentUserWalletAddress
+            ).length;
+            
+            // Received = Total slots computed and displayed - Sent
+            received = total - sent;
+        }
+        
         return {
-            totalMessages: allMessages.length,
+            totalMessages: total,
+            sentMessages: sent,
+            receivedMessages: received,
             currentSlot: currentSlot,
             cachedSlots: this.cachedMessages.size,
             latestMessage: allMessages.length > 0 ? allMessages[allMessages.length - 1] : null

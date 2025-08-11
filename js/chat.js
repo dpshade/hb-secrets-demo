@@ -1201,8 +1201,11 @@ class ChatSystem {
             return counts;
         }, {});
         
-        // Get chat history stats
-        const historyStats = await this.chatHistory.getStats();
+        // Get current user's wallet address for sent/received calculation
+        const currentUserWalletAddress = this.auth ? this.auth.getWalletAddress() : null;
+        
+        // Get chat history stats with current user's wallet address
+        const historyStats = await this.chatHistory.getStats(currentUserWalletAddress);
 
         return {
             totalMessages: this.messages.length,
@@ -1211,7 +1214,11 @@ class ChatSystem {
             pendingMessages: this.pendingMessages.size,
             isPolling: this.isPolling,
             lastMessageId: this.lastMessageId,
-            historyStats: historyStats
+            historyStats: historyStats,
+            // Include sent/received/total from history stats for easy access
+            sent: historyStats.sentMessages || 0,
+            received: historyStats.receivedMessages || 0,
+            total: historyStats.totalMessages || 0
         };
     }
 

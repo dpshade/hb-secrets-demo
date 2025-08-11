@@ -449,6 +449,10 @@
             gap: var(--space-2);
         }
         
+        .stat-item-full {
+            grid-column: 1 / -1; /* Span full width */
+        }
+        
         .stat-item {
             text-align: center;
             padding: var(--space-2);
@@ -1386,7 +1390,7 @@
             }
             
             .stats-grid {
-                grid-template-columns: repeat(4, 1fr);
+                grid-template-columns: repeat(2, 1fr);
                 gap: var(--space-1);
             }
             
@@ -1610,11 +1614,7 @@
                             <div class="stat-value" id="stat-received">0</div>
                             <div class="stat-label">Received</div>
                         </div>
-                        <div class="stat-item">
-                            <div class="stat-value" id="stat-pending">0</div>
-                            <div class="stat-label">Pending</div>
-                        </div>
-                        <div class="stat-item">
+                        <div class="stat-item stat-item-full">
                             <div class="stat-value" id="stat-total">0</div>
                             <div class="stat-label">Total</div>
                         </div>
@@ -1712,7 +1712,6 @@
                 this.stats = {
                     sent: 0,
                     received: 0,
-                    pending: 0,
                     total: 0
                 };
                 
@@ -1757,7 +1756,7 @@
             getUIReferences() {
                 const ids = [
                     'messages', 'message-input', 'send-btn', 'stat-sent',
-                    'stat-received', 'stat-pending', 'stat-total',
+                    'stat-received', 'stat-total',
                     'wallet-info', 'wallet-display', 'username-input',
                     'process-id', 'current-slot', 'avg-response-time'
                 ];
@@ -2177,7 +2176,7 @@
                     
                     if (result.success) {
                         input.value = '';
-                        this.stats.sent++;
+                        // Stats will be updated from chat system automatically
                         this.updateStatsWithAnimation('sent');
                         
                         this.updateStatus('Message delivered', 'connected');
@@ -2319,32 +2318,38 @@
             
             
             onMessageSent(data) {
-                this.stats.sent++;
+                // Stats will be updated from chat system automatically
                 this.updateStats();
                 CONFIG.debug('Message sent:', data);
             }
             
             onMessageReceived(data) {
-                this.stats.received++;
+                // Stats will be updated from chat system automatically
                 this.updateStats();
                 CONFIG.debug('Message received:', data);
             }
             
             onExecutionComplete(data) {
-                this.stats.pending = Math.max(0, this.stats.pending - 1);
+                // Stats will be updated from chat system automatically
                 this.updateStats();
                 CONFIG.debug('Execution complete:', data);
             }
             
-            updateStats() {
+            async updateStats() {
+                if (this.chat) {
+                    // Get real-time statistics from chat system
+                    const chatStats = await this.chat.getStats();
+                    this.stats.sent = chatStats.sent || 0;
+                    this.stats.received = chatStats.received || 0;
+                    this.stats.total = chatStats.total || 0;
+                }
+                
                 this.elements['stat-sent'].textContent = this.stats.sent;
                 this.elements['stat-received'].textContent = this.stats.received;
-                this.elements['stat-pending'].textContent = this.stats.pending;
-                this.stats.total = this.stats.sent + this.stats.received;
                 this.elements['stat-total'].textContent = this.stats.total;
             }
             
-            updateStatsWithAnimation(statType) {
+            async updateStatsWithAnimation(statType) {
                 // Update the stat with a delightful animation
                 const statElement = this.elements[`stat-${statType}`];
                 const statItem = statElement.closest('.stat-item');
@@ -2355,7 +2360,7 @@
                     statItem.classList.add('updated');
                     
                     // Update the value
-                    this.updateStats();
+                    await this.updateStats();
                     
                     // Remove animations after they complete
                     setTimeout(() => {
