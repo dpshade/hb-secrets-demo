@@ -1472,8 +1472,8 @@ class ChatSystem {
      */
     async immediatelyCheckForComputedMessage(pendingMessageId, messageContent, username) {
         try {
-            // Check immediately without any delay
-            const latestMessages = await this.chatHistory.fetchMessagesFromNowEndpoint();
+            // Check immediately without any delay - use paginated fetch for efficiency
+            const latestMessages = await this.chatHistory.fetchNewMessagesOnly();
             
             // Look for our message in the latest results
             const computedMessage = latestMessages.find(msg => 

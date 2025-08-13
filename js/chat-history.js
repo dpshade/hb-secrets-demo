@@ -12,6 +12,7 @@ class ChatHistory {
         this.lastFetchTime = 0;
         this.lastMessageCount = 0; // Track last known message count for efficient polling
         this.messageCountCache = 0; // Cache the message count
+        this.highestMessageId = 0; // Track highest message ID we've seen for pagination
     }
 
     async getCurrentSlot() {
@@ -95,44 +96,86 @@ class ChatHistory {
      * Efficiently fetch only new messages since last check
      */
     async fetchNewMessages() {
-        try {
-            const currentCount = await this.getMessageCount();
-            
-            // If no new messages, return empty array
-            if (currentCount <= this.lastMessageCount) {
-                console.log(`No new messages: ${currentCount} <= ${this.lastMessageCount}`);
-                return [];
-            }
-            
-            console.log(`Fetching ${currentCount - this.lastMessageCount} new messages (${this.lastMessageCount + 1} to ${currentCount})`);
-            
-            // Fetch only the new messages
-            const newMessages = [];
-            for (let i = this.lastMessageCount + 1; i <= currentCount; i++) {
-                const message = await this.fetchIndividualMessage(i);
-                if (message) {
-                    newMessages.push(message);
-                }
-            }
-            
-            // Update our tracking
-            this.lastMessageCount = currentCount;
-            
-            // Add to cache
-            this.messageCache.push(...newMessages);
-            
-            console.log(`Fetched ${newMessages.length} new messages`);
-            return newMessages;
-            
-        } catch (error) {
-            console.error('Error fetching new messages:', error);
-            return [];
-        }
+        // Use the efficient paginated method instead of individual API calls
+        return await this.fetchNewMessagesOnly();
     }
 
     /**
-     * Fetch messages using the improved /now/messages endpoint
-     * This returns a clean structured format: { "1": { content, timestamp, username, wallet_address }, "device": "json@1.0" }
+     * Fetch only NEW messages using paginated /now/messages/N endpoint
+     * This is the efficient method for polling - only gets messages after the highest ID we've seen
+     */
+    async fetchNewMessagesOnly() {
+        try {
+            // Start from the next message after the highest ID we've seen
+            const startId = this.highestMessageId + 1;
+            
+            // Use paginated endpoint: /now/messages/N where N is the starting message number
+            const endpoint = `/${this.processId}/now/messages/${startId}/serialize~json@1.0`;
+            
+            console.log(`🔄 POLLING: Fetching new messages starting from ID ${startId}`);
+            
+            const response = await this.api.makeRequest(endpoint, {
+                method: 'GET'
+            });
+            
+            if (response.ok && response.data) {
+                const data = response.data;
+                const messages = [];
+                let highestIdSeen = this.highestMessageId;
+                
+                // Parse the paginated response format
+                for (const [key, messageData] of Object.entries(data)) {
+                    // Skip system fields like "device"
+                    if (key === 'device' || !messageData || typeof messageData !== 'object') {
+                        continue;
+                    }
+                    
+                    const messageId = parseInt(key);
+                    if (isNaN(messageId)) continue;
+                    
+                    // Convert to our standard message format
+                    const message = {
+                        content: messageData.content,
+                        username: messageData.username || 'Chat User',
+                        timestamp: parseInt(messageData.timestamp) || Date.now(),
+                        walletAddress: messageData.wallet_address || null,
+                        id: messageId // Use numeric ID for proper tracking
+                    };
+                    
+                    messages.push(message);
+                    
+                    // Track highest ID
+                    if (messageId > highestIdSeen) {
+                        highestIdSeen = messageId;
+                    }
+                }
+                
+                // Update our tracking
+                this.highestMessageId = highestIdSeen;
+                
+                // Sort by timestamp
+                messages.sort((a, b) => a.timestamp - b.timestamp);
+                
+                if (messages.length > 0) {
+                    console.log(`📬 NEW MESSAGES: Found ${messages.length} new messages (highest ID: ${highestIdSeen})`);
+                } else {
+                    console.log(`✅ POLLING: No new messages (checked from ID ${startId})`);
+                }
+                
+                return messages;
+            } else {
+                console.log(`⚠️ POLLING: No response data from /now/messages/${startId}`);
+            }
+        } catch (error) {
+            console.error('Error fetching new messages:', error);
+        }
+        
+        return [];
+    }
+
+    /**
+     * Fetch messages using the improved /now/messages endpoint (BULK - only for initial load)
+     * This returns ALL messages - should only be used for initial page load, not polling
      * DEPRECATED: Use fetchNewMessages() for better performance
      */
     async fetchMessagesFromNowEndpoint() {
@@ -153,27 +196,35 @@ class ChatHistory {
                         continue;
                     }
                     
+                    const messageId = parseInt(key);
+                    if (isNaN(messageId)) continue;
+                    
                     // Convert to our standard message format
                     const message = {
                         content: messageData.content,
                         username: messageData.username || 'Chat User',
                         timestamp: parseInt(messageData.timestamp) || Date.now(),
                         walletAddress: messageData.wallet_address || null,
-                        id: key // Use the key as message ID
+                        id: messageId // Use numeric ID for proper tracking
                     };
                     
                     messages.push(message);
+                    
+                    // Track highest ID for future paginated requests
+                    if (messageId > this.highestMessageId) {
+                        this.highestMessageId = messageId;
+                    }
                 }
                 
-                // Sort by timestamp (most recent first for display)
+                // Sort by timestamp
                 messages.sort((a, b) => a.timestamp - b.timestamp);
                 
-                console.log(`Fetched ${messages.length} messages via /now/messages endpoint`);
+                console.log(`📚 BULK LOAD: Fetched ${messages.length} total messages (highest ID: ${this.highestMessageId})`);
                 
                 // Update cache
                 this.messageCache = messages;
                 this.lastFetchTime = Date.now();
-                this.lastMessageCount = messages.length; // Track count for efficient polling
+                this.lastMessageCount = messages.length;
                 
                 return messages;
             }
@@ -314,37 +365,13 @@ class ChatHistory {
         this.isLoading = true;
         
         try {
-            // First, try the efficient individual message approach
-            const messageCount = await this.getMessageCount();
-            if (messageCount > 0) {
-                console.log(`Loading ${Math.min(messageCount, maxSlots)} messages via individual message endpoints`);
-                
-                // Calculate which messages to fetch (most recent ones)
-                const startIndex = Math.max(1, messageCount - maxSlots + 1);
-                const endIndex = messageCount;
-                
-                const messages = [];
-                for (let i = startIndex; i <= endIndex; i++) {
-                    const message = await this.fetchIndividualMessage(i);
-                    if (message) {
-                        messages.push(message);
-                    }
-                }
-                
-                // Update our tracking
-                this.lastMessageCount = messageCount;
-                this.messageCache = messages;
-                
-                console.log(`Loaded ${messages.length} messages via individual message endpoints`);
-                return messages;
-            }
-            
-            // Fallback to bulk /now/messages endpoint if individual approach fails
-            console.log('Falling back to bulk /now/messages endpoint');
+            // Use the efficient bulk /now/messages endpoint for initial load
+            console.log('Loading all messages for initial page load using bulk /now/messages endpoint');
             const messages = await this.fetchMessagesFromNowEndpoint();
             if (messages.length > 0) {
-                console.log(`Loaded ${messages.length} messages via bulk /now/messages endpoint`);
-                return messages.slice(-maxSlots); // Return the most recent messages up to maxSlots
+                console.log(`Loaded ${messages.length} messages via bulk /now/messages endpoint (highest ID: ${this.highestMessageId})`);
+                // Return the most recent messages up to maxSlots for display
+                return messages.slice(-maxSlots);
             }
 
             // Fallback to slot-based method only if /now/messages fails
