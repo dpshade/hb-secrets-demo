@@ -513,36 +513,13 @@ class AuthSystem {
         this.persistAuthState();
     }
 
-    /**
-     * Get username (for basic auth)
-     */
-    getUsername() {
-        return this.authState.username;
-    }
+    // REMOVED: getUsername - unused
 
-    /**
-     * Get authentication method
-     */
-    getAuthMethod() {
-        return this.authState.method;
-    }
+    // REMOVED: getAuthMethod - unused
 
-    /**
-     * Update activity timestamp
-     */
-    updateActivity() {
-        if (this.authState.authenticated) {
-            this.authState.lastActivity = Date.now();
-            this.persistAuthState();
-        }
-    }
+    // REMOVED: updateActivity - unused
 
-    /**
-     * Get stored keyid for wallet export
-     */
-    getKeyid() {
-        return this.authState.keyid;
-    }
+    // REMOVED: getKeyid - unused
 
     /**
      * Store wallet data client-side for export functionality

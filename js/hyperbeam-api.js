@@ -386,133 +386,11 @@ class HyperBEAMAPI {
         return null;
     }
 
-    /**
-     * Trigger slot computation (execution trigger with serialization bug handling)
-     */
-    async triggerComputation(slot) {
-        this.config.debug(`Triggering computation for slot ${slot}`);
-        
-        const response = await this.makeRequest(
-            this.config.getEndpoint('PROCESS_SLOT_COMPUTE', this.config.PROCESS_ID, slot),
-            {
-                method: 'POST',
-                body: '{}'
-            }
-        );
+    // REMOVED: triggerComputation - unused legacy method
 
-        // Note: HyperBEAM has a serialization bug that causes 404 responses
-        // even when computation starts successfully
-        if (response.status === 404) {
-            this.config.debug('Received expected 404 due to HyperBEAM serialization bug, but computation may have started');
-            // Return success with note about the bug
-            return {
-                ...response,
-                computationTriggered: true,
-                note: 'Received 404 due to known HyperBEAM serialization bug, but computation likely started'
-            };
-        }
+    // REMOVED: waitForSlotAdvancement - unused legacy method
 
-        return response;
-    }
-
-    /**
-     * Wait for slot advancement (polling-based)
-     */
-    async waitForSlotAdvancement(initialSlot, timeout = this.config.TIMING.SLOT_ADVANCEMENT_TIMEOUT) {
-        const startTime = Date.now();
-        const pollInterval = this.config.TIMING.SLOT_POLL_INTERVAL;
-        
-        this.config.debug(`Waiting for slot advancement from ${initialSlot}, timeout: ${timeout}ms`);
-
-        return new Promise((resolve) => {
-            const checkSlot = async () => {
-                const currentSlot = await this.getCurrentSlot();
-                const elapsed = Date.now() - startTime;
-
-                if (currentSlot > initialSlot) {
-                    this.config.log(`Slot advanced from ${initialSlot} to ${currentSlot} in ${elapsed}ms`);
-                    resolve({
-                        success: true,
-                        initialSlot,
-                        currentSlot,
-                        elapsed,
-                        advanced: true
-                    });
-                    return;
-                }
-
-                if (elapsed >= timeout) {
-                    this.config.log(`Slot advancement timeout after ${elapsed}ms, still at slot ${currentSlot}`);
-                    resolve({
-                        success: false,
-                        initialSlot,
-                        currentSlot,
-                        elapsed,
-                        advanced: false,
-                        timeout: true
-                    });
-                    return;
-                }
-
-                // Continue polling
-                setTimeout(checkSlot, pollInterval);
-            };
-
-            checkSlot();
-        });
-    }
-
-    /**
-     * Send message with execution trigger (complete flow)
-     */
-    async sendMessageWithExecution(messageContent) {
-        this.config.log('Starting complete message send with execution flow');
-        
-        try {
-            // Step 1: Get initial slot
-            const initialSlot = await this.getCurrentSlot();
-            if (initialSlot === null) {
-                throw new Error('Failed to get initial slot number');
-            }
-
-            // Step 2: Commit message to inbox
-            const commitResponse = await this.commitMessage({
-                content: messageContent,
-                data: messageContent
-            });
-
-            if (!commitResponse.ok) {
-                throw new Error(`Message commit failed: ${commitResponse.statusText}`);
-            }
-
-            // Step 3: Trigger computation for next slot
-            const nextSlot = initialSlot + 1;
-            const computeResponse = await this.triggerComputation(nextSlot);
-
-            // Step 4: Wait for slot advancement
-            const slotResult = await this.waitForSlotAdvancement(initialSlot);
-
-            return {
-                success: commitResponse.ok && (slotResult.advanced || computeResponse.computationTriggered),
-                message: messageContent,
-                initialSlot,
-                finalSlot: slotResult.currentSlot,
-                slotAdvanced: slotResult.advanced,
-                executionTime: slotResult.elapsed,
-                commitResponse,
-                computeResponse,
-                slotResult
-            };
-
-        } catch (error) {
-            this.config.log('Message send with execution failed:', error);
-            return {
-                success: false,
-                error: error.message,
-                message: messageContent
-            };
-        }
-    }
+    // REMOVED: sendMessageWithExecution - unused legacy method
 
     /**
      * Direct push message (using &! pattern)
@@ -542,61 +420,12 @@ class HyperBEAMAPI {
             this.config.getEndpoint('PROCESS_NOW', this.config.PROCESS_ID)
         );
 
-        if (response.ok && response.data) {
-            // Parse HyperBEAM format response
-            const stateData = this.parseHyperBEAMState(response.data);
-            return {
-                ...response,
-                parsedState: stateData
-            };
-        }
-
         return response;
     }
 
-    /**
-     * Parse HyperBEAM state format (from /now endpoint)
-     */
-    parseHyperBEAMState(responseText) {
-        if (typeof responseText !== 'string') {
-            return null;
-        }
+    // REMOVED: parseHyperBEAMState - unused legacy method
 
-        const state = {};
-        
-        // Extract slot number
-        const slotMatch = responseText.match(/at-slot\s*=>\s*(\d+)/);
-        if (slotMatch) {
-            state.slot = parseInt(slotMatch[1]);
-        }
-
-        // Extract output data
-        const outputMatch = responseText.match(/data\s*=>\s*(.+)/);
-        if (outputMatch) {
-            state.outputData = outputMatch[1].trim();
-        }
-
-        // Extract inbox info
-        const inboxMatch = responseText.match(/\[Inbox:(\d+)\]/);
-        if (inboxMatch) {
-            state.inboxCount = parseInt(inboxMatch[1]);
-        }
-
-        this.config.debug('Parsed HyperBEAM state:', state);
-        return state;
-    }
-
-    /**
-     * Health check
-     */
-    async healthCheck() {
-        const response = await this.makeRequest(this.config.ENDPOINTS.META_HEALTH, {
-            method: 'POST',
-            body: '{}'
-        });
-
-        return response;
-    }
+    // REMOVED: healthCheck - unused method
 
     /**
      * Get performance metrics

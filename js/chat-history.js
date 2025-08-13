@@ -145,72 +145,9 @@ class ChatHistory {
         return [];
     }
 
-    /**
-     * Fetch messages using the improved /now/messages endpoint (BULK - only for initial load)
-     * This returns ALL messages - should only be used for initial page load, not polling
-     * DEPRECATED: Use fetchNewMessages() for better performance
-     */
-    async fetchMessagesFromNowEndpoint() {
-        try {
-            const endpoint = this.api.config.getEndpoint('PROCESS_NOW_MESSAGES', this.processId);
-            const response = await this.api.makeRequest(endpoint, {
-                method: 'GET'
-            });
+    // REMOVED: fetchMessagesFromNowEndpoint - replaced by individual message fetching
 
-            if (response.ok && response.data) {
-                const data = response.data;
-                
-                // Parse the new structured format
-                const messages = [];
-                for (const [key, messageData] of Object.entries(data)) {
-                    // Skip system fields like "device"
-                    if (key === 'device' || !messageData || typeof messageData !== 'object') {
-                        continue;
-                    }
-                    
-                    const messageId = parseInt(key);
-                    if (isNaN(messageId)) continue;
-                    
-                    // Convert to our standard message format
-                    const message = {
-                        content: messageData.content,
-                        username: messageData.username || 'Chat User',
-                        timestamp: parseInt(messageData.timestamp) || Date.now(),
-                        walletAddress: messageData.wallet_address || null,
-                        id: messageId // Use numeric ID for proper tracking
-                    };
-                    
-                    messages.push(message);
-                    
-                    // Track highest ID for future paginated requests
-                    if (messageId > this.highestMessageId) {
-                        this.highestMessageId = messageId;
-                    }
-                }
-                
-                // Sort by timestamp
-                messages.sort((a, b) => a.timestamp - b.timestamp);
-                
-                console.log(`📚 BULK LOAD: Fetched ${messages.length} total messages (highest ID: ${this.highestMessageId})`);
-                
-                // Update cache
-                this.messageCache = messages;
-                this.lastFetchTime = Date.now();
-                this.lastMessageCount = messages.length;
-                
-                return messages;
-            }
-        } catch (error) {
-            console.error('Error fetching messages from /now/messages endpoint:', error);
-        }
-        
-        return [];
-    }
-
-    // Legacy function - no longer used since we have /now/messages endpoint
-    async getRawMessagesFromSlot(slot) {
-        return []; // Stub for compatibility
-    }
+    // REMOVED: getRawMessagesFromSlot - no longer needed
 
     async getMessagesFromSlot(slot) {
         if (this.cachedMessages.has(slot)) {

@@ -158,8 +158,6 @@ class ChatSystem {
                 walletAddress: this.auth.getWalletAddress()
             };
             
-            // No longer using hash-based deduplication
-
             // Add to messages immediately (optimistic update) with pending state
             this.addMessage(message);
             
@@ -321,14 +319,7 @@ class ChatSystem {
     }
 
 
-    /**
-     * DEPRECATED: No longer used - we now only check message count when slot advances
-     * This optimization prevents unnecessary lenmessages API calls on every poll
-     */
-    async hasNewMessages() {
-        // This method is no longer called to avoid polling lenmessages endpoint
-        return false;
-    }
+    // REMOVED: hasNewMessages - deprecated and unused
 
     /**
      * Check for new messages and slot advancement - OPTIMIZED for scalability
@@ -461,32 +452,7 @@ class ChatSystem {
         }
     }
 
-    /**
-     * Try alternative methods to retrieve slot results (workaround for serialization bug)
-     */
-    async tryAlternativeSlotRetrieval(slot) {
-        try {
-            // Try getting overall process state
-            const stateResponse = await this.api.getProcessState();
-            
-            if (stateResponse.ok && stateResponse.parsedState) {
-                const state = stateResponse.parsedState;
-                
-                if (state.outputData && state.outputData !== 'undefined') {
-                    this.config.debug(`Found output data in process state: ${state.outputData}`);
-                    
-                    // Create synthetic output for processing
-                    await this.processSlotOutput(slot, {
-                        data: state.outputData,
-                        source: 'process-state'
-                    });
-                }
-            }
-            
-        } catch (error) {
-            this.config.debug(`Alternative slot retrieval failed for slot ${slot}:`, error);
-        }
-    }
+    // REMOVED: tryAlternativeSlotRetrieval - no longer used
 
     /**
      * Prepare a message from chat history without adding it to UI
@@ -828,129 +794,7 @@ class ChatSystem {
         this.messageContainer.innerHTML = emptyStateHTML;
     }
 
-    /**
-     * Process a message from chat history
-     */
-    async processHistoryMessage(historyMessage) {
-        this.config.debug(`Processing history message from slot ${historyMessage.slot}:`, historyMessage.content);
-
-        // Extract username from message metadata/tags (now properly stored by AO process)
-        let username = 'Chat User'; // Default username
-        
-        if (historyMessage.tags && historyMessage.tags.username) {
-            username = historyMessage.tags.username;
-        } else if (historyMessage.tags && historyMessage.tags.Username) {
-            username = historyMessage.tags.Username;
-        } else if (historyMessage.username) {
-            username = historyMessage.username;
-        }
-        
-        // Extract wallet address from message metadata/tags
-        let messageWalletAddress = null;
-        // Handle both formats: direct walletAddress field or from tags
-        if (historyMessage.walletAddress) {
-            messageWalletAddress = historyMessage.walletAddress;
-        } else if (historyMessage.wallet_address) {
-            messageWalletAddress = historyMessage.wallet_address;
-        } else if (historyMessage.tags && historyMessage.tags.wallet_address) {
-            messageWalletAddress = historyMessage.tags.wallet_address;
-        } else if (historyMessage.tags && historyMessage.tags.Wallet_Address) {
-            messageWalletAddress = historyMessage.tags.Wallet_Address;
-        }
-        
-        // Get current user info for comparison
-        const usernameInput = document.getElementById('username-input');
-        const currentUsername = usernameInput?.value?.trim() || 'Chat User';
-        const currentWalletAddress = this.auth.getWalletAddress();
-        
-        this.config.debug(`Processing history: '${historyMessage.content}' from '${username}' (wallet: ${messageWalletAddress}), current user: '${currentUsername}' (wallet: ${currentWalletAddress})'`);
-        
-        // Check if this message is from the current user - prioritize wallet address comparison
-        let isOwnMessage = false;
-        if (messageWalletAddress && currentWalletAddress && 
-            messageWalletAddress !== 'auto-generated' && currentWalletAddress !== 'auto-generated' &&
-            messageWalletAddress.length === 43 && currentWalletAddress.length === 43) {
-            // Use wallet address comparison when both are valid 43-char addresses
-            isOwnMessage = messageWalletAddress === currentWalletAddress;
-            this.config.debug(`Processing history own check via wallet: ${isOwnMessage} (${messageWalletAddress} vs ${currentWalletAddress})`);
-        } else {
-            // Fallback to username comparison
-            isOwnMessage = username === currentUsername;
-            this.config.debug(`Processing history own check via username: ${isOwnMessage} (${username} vs ${currentUsername})`);
-        }
-        
-        // If this message is from the current user, merge it with the existing UI message
-        if (isOwnMessage) {
-            // Find the most recent matching message regardless of pending/confirmed status
-            const existing = this.messages.slice().reverse().find(m =>
-                m.content === historyMessage.content &&
-                m.author === currentUsername
-            );
-
-            if (existing) {
-                // If we've already set the same slot/reference, skip re-processing
-                if (existing.slot === historyMessage.slot && existing.reference === historyMessage.reference) {
-                    this.config.debug('Own history message already processed; skipping');
-                    return;
-                }
-
-                // Update existing message in place
-                existing.status = 'confirmed';
-                existing.isPending = false;
-                existing.slot = historyMessage.slot;
-                existing.reference = historyMessage.reference;
-                existing.source = 'chat-history';
-
-                // Update UI
-                if (this.messageContainer) {
-                    const el = this.messageContainer.querySelector(`[data-message-id="${existing.id}"]`);
-                    if (el) {
-                        this.updateMessageElement(el, existing);
-                        el.classList.remove('pending');
-                        el.classList.add('confirmed');
-                    }
-                }
-
-                this.emit('messageReceived', { message: existing, slot: historyMessage.slot });
-                return; // Do not add a second message
-            }
-        }
-        
-        // If we get here, this is a NEW message from someone else - add it
-        if (false) { // This condition will never be true, removing the old logic
-            // This is a confirmation of a message we sent - update the existing message
-            const existingMessage = this.messages.find(m => m.id === existingMessageId);
-            if (existingMessage && existingMessage.isPending) {
-                this.config.debug(`Confirming sent message ${existingMessageId}`);
-                this.updateMessageStatus(existingMessageId, 'confirmed', {
-                    slot: historyMessage.slot,
-                    reference: historyMessage.reference,
-                    confirmed: true
-                });
-                
-                // No longer using hash tracking
-                
-                this.emit('messageReceived', { message: existingMessage, slot: historyMessage.slot });
-                return;
-            }
-        }
-
-        // This is a new message from someone else - add it normally
-        const processMessage = {
-            id: `history-${historyMessage.slot}-${historyMessage.reference}`,
-            content: historyMessage.content,
-            timestamp: historyMessage.timestamp,
-            author: username,
-            status: 'received',
-            slot: historyMessage.slot,
-            reference: historyMessage.reference,
-            source: 'chat-history',
-            walletAddress: messageWalletAddress
-        };
-
-        this.addMessage(processMessage);
-        this.emit('messageReceived', { message: processMessage, slot: historyMessage.slot });
-    }
+    // REMOVED: processHistoryMessage - redundant with prepareHistoryMessage
 
     /**
      * Check pending messages for execution completion
@@ -969,10 +813,7 @@ class ChatSystem {
         }
     }
 
-    /**
-     * Create a hash for message deduplication
-     */
-    // Removed createMessageHash - using simpler username comparison
+    // REMOVED: createMessageHash function - no longer needed
 
     /**
      * Add a message to the chat
@@ -1175,39 +1016,7 @@ class ChatSystem {
         `;
     }
 
-    /**
-     * Get status text for display
-     */
-    getStatusText(status) {
-        const statusTexts = {
-            sending: 'Sending...',
-            sent: 'Sent',
-            failed: 'Failed',
-            pending: 'Pending'
-        };
-        return statusTexts[status] || status;
-    }
-
-    /**
-     * Get CSS class for status
-     */
-    getStatusClass(status) {
-        const statusClasses = {
-            sending: 'status-pending',
-            sent: 'status-sent',
-            failed: 'status-error',
-            pending: 'status-pending'
-        };
-        return statusClasses[status] || '';
-    }
-
-    /**
-     * Apply message grouping - Removed for minimal style
-     */
-    applyMessageGrouping(messageEl, message) {
-        // No grouping needed for minimal terminal-style interface
-        messageEl.classList.remove('grouped', 'last-in-group');
-    }
+    // REMOVED: getStatusText, getStatusClass, applyMessageGrouping - unused with current minimal UI
 
     /**
      * Scroll chat to bottom
@@ -1357,10 +1166,8 @@ class ChatSystem {
             this.messageContainer.innerHTML = '';
         }
         
-        // Clear chat history cache
+        // Clear chat history cache and reload
         this.chatHistory.clearCache();
-        
-        // Reload history using the improved load-all-then-sort-then-display pattern
         await this.loadChatHistory();
     }
     
@@ -1416,7 +1223,6 @@ class ChatSystem {
      */
     clearChatHistory() {
         this.messages = [];
-        // Removed hash tracking
         if (this.messageContainer) {
             this.messageContainer.innerHTML = '';
         }
@@ -1435,8 +1241,27 @@ class ChatSystem {
         // Get current user's wallet address for sent/received calculation
         const currentUserWalletAddress = this.auth ? this.auth.getWalletAddress() : null;
         
-        // Get chat history stats with current user's wallet address
-        const historyStats = await this.chatHistory.getStats(currentUserWalletAddress);
+        // Calculate sent/received directly from displayed messages for accuracy
+        let sent = 0;
+        let received = 0;
+        
+        if (currentUserWalletAddress) {
+            // Count messages from current user by wallet address (most reliable)
+            sent = this.messages.filter(msg => {
+                return msg.walletAddress && 
+                       currentUserWalletAddress && 
+                       msg.walletAddress === currentUserWalletAddress &&
+                       msg.walletAddress.length === 43 && 
+                       currentUserWalletAddress.length === 43;
+            }).length;
+            
+            received = this.messages.length - sent;
+        } else {
+            received = this.messages.length;
+        }
+        
+        // Get total message count from chat history for comparison
+        const totalMessagesInHistory = await this.chatHistory.getMessageCount();
 
         return {
             totalMessages: this.messages.length,
@@ -1445,11 +1270,10 @@ class ChatSystem {
             pendingMessages: this.pendingMessages.size,
             isPolling: this.isPolling,
             lastMessageId: this.lastMessageId,
-            historyStats: historyStats,
-            // Include sent/received/total from history stats for easy access
-            sent: historyStats.sentMessages || 0,
-            received: historyStats.receivedMessages || 0,
-            total: historyStats.totalMessages || 0
+            // Use our calculated values from displayed messages
+            sent: sent,
+            received: received,
+            total: totalMessagesInHistory || this.messages.length
         };
     }
 
@@ -1615,7 +1439,6 @@ class ChatSystem {
         this.stopMessagePolling();
         this.messages = [];
         this.pendingMessages.clear();
-        // Removed hash tracking
         this.eventHandlers = {};
         this.config.log('Chat system destroyed');
     }
