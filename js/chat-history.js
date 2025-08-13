@@ -94,78 +94,50 @@ class ChatHistory {
 
     /**
      * Efficiently fetch only new messages since last check
+     * Uses individual /N endpoints for bandwidth efficiency
      */
     async fetchNewMessages() {
-        // Use the efficient paginated method instead of individual API calls
         return await this.fetchNewMessagesOnly();
     }
 
     /**
-     * Fetch only NEW messages using paginated /now/messages/N endpoint
-     * This is the efficient method for polling - only gets messages after the highest ID we've seen
+     * Fetch only NEW messages using individual /now/messages/N endpoints
+     * This is bandwidth-efficient - fetches each new message individually
      */
     async fetchNewMessagesOnly() {
         try {
-            // Start from the next message after the highest ID we've seen
-            const startId = this.highestMessageId + 1;
+            // First get the current total message count
+            const currentCount = await this.getMessageCount();
             
-            // Use paginated endpoint: /now/messages/N where N is the starting message number
-            const endpoint = `/${this.processId}/now/messages/${startId}/serialize~json@1.0`;
-            
-            console.log(`🔄 POLLING: Fetching new messages starting from ID ${startId}`);
-            
-            const response = await this.api.makeRequest(endpoint, {
-                method: 'GET'
-            });
-            
-            if (response.ok && response.data) {
-                const data = response.data;
-                const messages = [];
-                let highestIdSeen = this.highestMessageId;
-                
-                // Parse the paginated response format
-                for (const [key, messageData] of Object.entries(data)) {
-                    // Skip system fields like "device"
-                    if (key === 'device' || !messageData || typeof messageData !== 'object') {
-                        continue;
-                    }
-                    
-                    const messageId = parseInt(key);
-                    if (isNaN(messageId)) continue;
-                    
-                    // Convert to our standard message format
-                    const message = {
-                        content: messageData.content,
-                        username: messageData.username || 'Chat User',
-                        timestamp: parseInt(messageData.timestamp) || Date.now(),
-                        walletAddress: messageData.wallet_address || null,
-                        id: messageId // Use numeric ID for proper tracking
-                    };
-                    
-                    messages.push(message);
-                    
-                    // Track highest ID
-                    if (messageId > highestIdSeen) {
-                        highestIdSeen = messageId;
-                    }
-                }
-                
-                // Update our tracking
-                this.highestMessageId = highestIdSeen;
-                
-                // Sort by timestamp
-                messages.sort((a, b) => a.timestamp - b.timestamp);
-                
-                if (messages.length > 0) {
-                    console.log(`📬 NEW MESSAGES: Found ${messages.length} new messages (highest ID: ${highestIdSeen})`);
-                } else {
-                    console.log(`✅ POLLING: No new messages (checked from ID ${startId})`);
-                }
-                
-                return messages;
-            } else {
-                console.log(`⚠️ POLLING: No response data from /now/messages/${startId}`);
+            if (currentCount <= this.highestMessageId) {
+                console.log(`✅ POLLING: No new messages (current: ${currentCount}, highest: ${this.highestMessageId})`);
+                return [];
             }
+            
+            // Fetch individual messages from highest+1 to current count
+            const startId = this.highestMessageId + 1;
+            const messages = [];
+            
+            console.log(`🔄 POLLING: Fetching messages ${startId} to ${currentCount}`);
+            
+            for (let messageId = startId; messageId <= currentCount; messageId++) {
+                const message = await this.fetchIndividualMessage(messageId);
+                if (message) {
+                    messages.push(message);
+                }
+            }
+            
+            // Update our highest ID tracking
+            if (messages.length > 0) {
+                this.highestMessageId = currentCount;
+                console.log(`📬 NEW MESSAGES: Found ${messages.length} new messages (highest ID: ${currentCount})`);
+            }
+            
+            // Sort by timestamp
+            messages.sort((a, b) => a.timestamp - b.timestamp);
+            
+            return messages;
+            
         } catch (error) {
             console.error('Error fetching new messages:', error);
         }
@@ -356,36 +328,53 @@ class ChatHistory {
     }
 
     /**
-     * Get all chat history - now uses individual message fetching for better performance
-     * Falls back to bulk endpoint and then slot-based retrieval if needed
+     * Get all chat history - uses individual message fetching for bandwidth efficiency
+     * Falls back to slot-based retrieval if needed
      */
-    async getAllChatHistory(maxSlots = 40, startFromSlot = null) {
+    async getAllChatHistory(maxMessages = 150, startFromSlot = null) {
         if (this.isLoading) return [];
         
         this.isLoading = true;
         
         try {
-            // Use the efficient bulk /now/messages endpoint for initial load
-            console.log('Loading all messages for initial page load using bulk /now/messages endpoint');
-            const messages = await this.fetchMessagesFromNowEndpoint();
-            if (messages.length > 0) {
-                console.log(`Loaded ${messages.length} messages via bulk /now/messages endpoint (highest ID: ${this.highestMessageId})`);
-                // Return the most recent messages up to maxSlots for display
-                return messages.slice(-maxSlots);
+            // Get total message count first
+            const totalMessages = await this.getMessageCount();
+            if (totalMessages > 0) {
+                console.log(`Loading initial chat history - ${totalMessages} total messages, fetching last ${Math.min(maxMessages, totalMessages)}`);
+                
+                // Calculate which messages to fetch (last N messages)
+                const messagesToFetch = Math.min(maxMessages, totalMessages);
+                const startId = Math.max(1, totalMessages - messagesToFetch + 1);
+                
+                const messages = [];
+                
+                // Fetch individual messages for bandwidth efficiency
+                for (let messageId = startId; messageId <= totalMessages; messageId++) {
+                    const message = await this.fetchIndividualMessage(messageId);
+                    if (message) {
+                        messages.push(message);
+                    }
+                }
+                
+                // Update highest ID tracking for future polling
+                this.highestMessageId = totalMessages;
+                
+                console.log(`Loaded ${messages.length} messages via individual /N endpoints (highest ID: ${this.highestMessageId})`);
+                return messages;
             }
 
-            // Fallback to slot-based method only if /now/messages fails
+            // Fallback to slot-based method only if individual message fetching fails
             console.log('Falling back to slot-based message retrieval');
             const currentSlot = await this.getCurrentSlot();
             
             // Determine slot range - work backwards from current slot
             let startSlot, endSlot;
             if (startFromSlot) {
-                startSlot = Math.max(1, startFromSlot - maxSlots);
+                startSlot = Math.max(1, startFromSlot - maxMessages);
                 endSlot = startFromSlot;
             } else {
                 // Default: get most recent messages by working backwards
-                startSlot = Math.max(1, currentSlot - maxSlots + 1);
+                startSlot = Math.max(1, currentSlot - maxMessages + 1);
                 endSlot = currentSlot;
             }
             
@@ -417,7 +406,7 @@ class ChatHistory {
     }
 
     /**
-     * Get the latest N messages - simplified to use the primary /now/messages endpoint
+     * Get the latest N messages - uses individual /N fetching for bandwidth efficiency
      */
     async getLatestMessages(count = 10, forceFetch = false) {
         try {
@@ -426,16 +415,30 @@ class ChatHistory {
                 return this.messageCache.slice(-count).reverse(); // Get last N messages, newest first
             }
             
-            // Fetch fresh messages from the /now/messages endpoint
-            const messages = await this.fetchMessagesFromNowEndpoint();
-            if (messages.length > 0) {
-                // Return the latest messages, up to the requested count
-                return messages.slice(-count).reverse(); // Get last N messages, newest first
+            // Get total message count first
+            const totalMessages = await this.getMessageCount();
+            if (totalMessages === 0) {
+                return [];
             }
             
-            // If /now/messages fails, return empty array (no complex fallback for getLatestMessages)
-            console.warn('No messages available from /now/messages endpoint');
-            return [];
+            // Calculate which messages to fetch (last N messages)
+            const messagesToFetch = Math.min(count, totalMessages);
+            const startId = Math.max(1, totalMessages - messagesToFetch + 1);
+            
+            const messages = [];
+            
+            // Fetch individual messages for bandwidth efficiency
+            for (let messageId = startId; messageId <= totalMessages; messageId++) {
+                const message = await this.fetchIndividualMessage(messageId);
+                if (message) {
+                    messages.push(message);
+                }
+            }
+            
+            // Sort by timestamp and return newest first
+            messages.sort((a, b) => b.timestamp - a.timestamp);
+            
+            return messages;
             
         } catch (error) {
             console.error('Error getting latest messages:', error);

@@ -322,94 +322,80 @@ class ChatSystem {
 
 
     /**
-     * Check if we have any new messages to fetch (optimized check)
+     * DEPRECATED: No longer used - we now only check message count when slot advances
+     * This optimization prevents unnecessary lenmessages API calls on every poll
      */
     async hasNewMessages() {
-        try {
-            const currentCount = await this.chatHistory.getMessageCount();
-            const hasNew = currentCount > this.chatHistory.lastMessageCount;
-            if (hasNew) {
-                this.config.debug(`New messages available: ${currentCount} > ${this.chatHistory.lastMessageCount}`);
-            }
-            return hasNew;
-        } catch (error) {
-            this.config.debug('Error checking for new messages:', error);
-            return false; // Assume no new messages on error to avoid unnecessary requests
-        }
+        // This method is no longer called to avoid polling lenmessages endpoint
+        return false;
     }
 
     /**
      * Check for new messages and slot advancement - OPTIMIZED for scalability
+     * Only checks message count when slot advances, not on every poll
      */
     async checkForNewMessages() {
         try {
-            // Quick check: do we even have new messages?
-            if (!(await this.hasNewMessages())) {
-                // Still check slots for pending message handling
-                const currentSlot = await this.api.getCurrentSlot();
-                if (currentSlot > this.lastKnownSlot) {
-                    this.lastKnownSlot = currentSlot;
-                    this.checkPendingMessages(currentSlot);
-                    await this.updateStatsDuringPolling();
-                }
-                return; // No new messages, exit early
-            }
-            
-            // Use the efficient fetchNewMessages method that only gets truly new messages
-            const fetchedNewMessages = await this.chatHistory.fetchNewMessages();
-            
-            // Process new messages if any were found
-            if (fetchedNewMessages.length > 0) {
-                const processedNewMessages = [];
-                for (const historyMessage of fetchedNewMessages) {
-                    // Create a consistent message ID
-                    const messageId = historyMessage.id ? 
-                        `msg-${historyMessage.id}` : 
-                        `msg-${historyMessage.timestamp}`;
-                    
-                    // Check if this message is already displayed (most efficient check)
-                    if (!this.displayedMessageIds.has(messageId)) {
-                        // Also check for content-based duplicates as fallback
-                        const existingMessage = this.messages.find(m => 
-                            m.content === historyMessage.content && 
-                            m.author === historyMessage.username &&
-                            Math.abs(m.timestamp - historyMessage.timestamp) < 1000
-                        );
-                        
-                        if (!existingMessage) {
-                        const preparedMessage = await this.prepareHistoryMessage(historyMessage);
-                            if (preparedMessage) {
-                                // Override the ID to ensure consistency
-                                preparedMessage.id = messageId;
-                                processedNewMessages.push(preparedMessage);
-                            }
-                        }
-                    }
-                }
-                
-                if (processedNewMessages.length > 0) {
-                    this.config.debug(`Adding ${processedNewMessages.length} new messages to display`);
-                    
-                    // Sort new messages by timestamp before adding
-                    processedNewMessages.sort((a, b) => {
-                        if (a.timestamp !== b.timestamp) {
-                            return a.timestamp - b.timestamp;
-                        }
-                        return 0;
-                    });
-                    
-                    // Use efficient addition method instead of full re-render
-                    this.addNewMessagesOnly(processedNewMessages);
-                }
-            }
-            
-            // Also check for slot advancement
+            // First check: has the slot advanced? (lightweight check)
             const currentSlot = await this.api.getCurrentSlot();
             
             if (currentSlot !== null && currentSlot > this.lastKnownSlot) {
                 this.config.log(`Slot advanced: ${this.lastKnownSlot} → ${currentSlot}`);
-                
                 this.lastKnownSlot = currentSlot;
+                
+                // Slot advanced - now check for new messages (only when needed)
+                const currentCount = await this.chatHistory.getMessageCount();
+                if (currentCount > this.chatHistory.highestMessageId) {
+                    this.config.debug(`New messages detected: ${currentCount} > ${this.chatHistory.highestMessageId}`);
+                    
+                    // Use the bandwidth-efficient individual message fetching
+                    const fetchedNewMessages = await this.chatHistory.fetchNewMessages();
+                    
+                    // Process new messages if any were found
+                    if (fetchedNewMessages.length > 0) {
+                        const processedNewMessages = [];
+                        for (const historyMessage of fetchedNewMessages) {
+                            // Create a consistent message ID
+                            const messageId = historyMessage.id ? 
+                                `msg-${historyMessage.id}` : 
+                                `msg-${historyMessage.timestamp}`;
+                            
+                            // Check if this message is already displayed (most efficient check)
+                            if (!this.displayedMessageIds.has(messageId)) {
+                                // Also check for content-based duplicates as fallback
+                                const existingMessage = this.messages.find(m => 
+                                    m.content === historyMessage.content && 
+                                    m.author === historyMessage.username &&
+                                    Math.abs(m.timestamp - historyMessage.timestamp) < 1000
+                                );
+                                
+                                if (!existingMessage) {
+                                    const preparedMessage = await this.prepareHistoryMessage(historyMessage);
+                                    if (preparedMessage) {
+                                        // Override the ID to ensure consistency
+                                        preparedMessage.id = messageId;
+                                        processedNewMessages.push(preparedMessage);
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if (processedNewMessages.length > 0) {
+                            this.config.debug(`Adding ${processedNewMessages.length} new messages to display`);
+                            
+                            // Sort new messages by timestamp before adding
+                            processedNewMessages.sort((a, b) => {
+                                if (a.timestamp !== b.timestamp) {
+                                    return a.timestamp - b.timestamp;
+                                }
+                                return 0;
+                            });
+                            
+                            // Use efficient addition method instead of full re-render
+                            this.addNewMessagesOnly(processedNewMessages);
+                        }
+                    }
+                }
                 
                 // Update any pending messages that might have executed
                 this.checkPendingMessages(currentSlot);
@@ -1472,8 +1458,8 @@ class ChatSystem {
      */
     async immediatelyCheckForComputedMessage(pendingMessageId, messageContent, username) {
         try {
-            // Check immediately without any delay - use paginated fetch for efficiency
-            const latestMessages = await this.chatHistory.fetchNewMessagesOnly();
+            // Check immediately without any delay - use efficient individual message fetching
+            const latestMessages = await this.chatHistory.getLatestMessages(5, true);
             
             // Look for our message in the latest results
             const computedMessage = latestMessages.find(msg => 
