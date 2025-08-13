@@ -1,4 +1,8 @@
-# HyperBEAM Chat - Claude Code Documentation
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+# HyperBEAM Chat
 
 This project is a real-time chat application built with HyperBEAM and AO (Autonomous Objects) infrastructure. The application demonstrates slot-based message persistence and provides a clean, modern chat experience.
 
@@ -91,19 +95,33 @@ HyperBEAM Chat is a decentralized chat application that:
 └── CLAUDE.md             # This documentation file
 ```
 
-## Development Notes
+## Development Commands
 
-### Running the Application
+### Essential Commands
 ```bash
-bun install
-bun run dev  # Starts server on localhost:4321
+bun install            # Install dependencies
+bun run dev            # Start development server with hot reload on localhost:4321
+bun run start          # Start production server on localhost:4321
 ```
 
-### Key Configuration
-- Frontend: `localhost:4321`
-- HyperBEAM Backend: `localhost:8734`
-- Proxy: `/api/hyperbeam` → HyperBEAM backend
-- Process ID: Configurable in `config.js`
+### Server Configuration
+- Uses Bun server with hot reloading enabled in development
+- Proxy setup: `/api/hyperbeam` routes to localhost:8734
+- No build step required - serves static files directly
+
+## Configuration Management
+
+### Core Settings (config.js)
+- **Process ID**: AO process for message storage (43-character string, validated)
+- **HyperBEAM Node**: Primary endpoint `/api/hyperbeam` (proxy to localhost:8734)  
+- **Backup Nodes**: Failover endpoints for HyperBEAM connectivity
+- **Message Limits**: 1000 char max length, 100 message storage
+- **Polling Intervals**: 2s slot polling, 3.5s message polling, 5s stats
+
+### Runtime Configuration
+- Debug mode enabled with `?debug=1` URL parameter
+- Process ID changes dispatch events for component updates
+- Automatic endpoint validation on startup
 
 ### Message States
 - **pending**: Just sent, translucent appearance with spinner

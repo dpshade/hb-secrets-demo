@@ -101,6 +101,42 @@ function startServer() {
                         }
                     }
 
+                    // Handle config.js dynamically to inject environment variables
+                    if (url.pathname === '/config.js') {
+                        try {
+                            const configFile = Bun.file('./config.js');
+                            let configContent = await configFile.text();
+                            
+                            // Inject environment variable if provided
+                            const envProcessId = process.env.HYPERBEAM_PROCESS_ID;
+                            if (envProcessId) {
+                                console.log(`[Config] Using HYPERBEAM_PROCESS_ID from environment: ${envProcessId}`);
+                                // Replace the default process ID with the environment variable
+                                configContent = configContent.replace(
+                                    /(_processId:\s*')[^']+(')/,
+                                    `$1${envProcessId}$2`
+                                );
+                            }
+                            
+                            return new Response(configContent, {
+                                headers: {
+                                    'Content-Type': 'application/javascript',
+                                    'Access-Control-Allow-Origin': '*',
+                                    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                                    'Access-Control-Allow-Headers': 'Content-Type'
+                                }
+                            });
+                        } catch (error) {
+                            console.error(`[Config Error] ${error.message}`);
+                            return new Response('Config file error', {
+                                status: 500,
+                                headers: {
+                                    'Access-Control-Allow-Origin': '*'
+                                }
+                            });
+                        }
+                    }
+
                     // Serve static files
                     const filePath = url.pathname === '/' ? '/index.html' : url.pathname;
 

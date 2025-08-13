@@ -1364,6 +1364,9 @@ class ChatSystem {
             await this.hideLoadingSkeleton();
             this.displayMessagesWithAnimation(processedMessages);
             
+            // Update statistics immediately after loading messages
+            await this.updateStatsDuringPolling();
+            
             this.updateStatus(`Loaded ${processedMessages.length} chat messages`, 'connected');
             
         } catch (error) {
