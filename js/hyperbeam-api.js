@@ -517,7 +517,7 @@ class HyperBEAMAPI {
     /**
      * Direct push message (using &! pattern)
      */
-    async pushMessage(message, action = 'chat-message', params = {}) {
+    async pushMessage(message, action = 'chat_message', params = {}) {
         const endpoint = this.config.getEndpoint('PROCESS_PUSH_WITH_PARAMS', 
             this.config.PROCESS_ID, action, { 
                 chat: message,
@@ -766,6 +766,105 @@ class HyperBEAMAPI {
      */
     isAuthenticated() {
         return this.cookies.size > 0 || this.authHeaders.size > 0 || !!this.walletAddress;
+    }
+
+    /**
+     * Call whoami endpoint to establish wallet context with HyperBEAM
+     * This is crucial for ensuring HyperBEAM has the wallet context for push operations
+     */
+    async whoami() {
+        this.config.log('Making whoami request to establish wallet context with HyperBEAM');
+        
+        // Make whoami request to HyperBEAM - match the working curl format
+        const whoamiUrl = `/${this.config.PROCESS_ID}/push&action=whoami&chat=&timestamp=${Date.now()}&!/serialize~json@1.0`;
+        this.config.log('Whoami request URL:', whoamiUrl);
+        
+        const response = await this.makeRequest(whoamiUrl, {
+            method: 'POST'  // Match the curl request method
+        });
+        
+        if (!response.ok) {
+            this.config.log('Whoami request failed:', response.statusText);
+            return {
+                success: false,
+                error: response.statusText || 'Unknown error',
+                response: response
+            };
+        }
+        
+        this.config.debug('Whoami response data:', response.data);
+        
+        // Extract wallet address from response if available
+        if (response.data && typeof response.data === 'object') {
+            let walletAddress = null;
+            
+            // Check outbox array first (primary location based on curl response)
+            if (response.data.outbox && Array.isArray(response.data.outbox) && response.data.outbox.length > 0) {
+                walletAddress = response.data.outbox[0].wallet_address;
+                this.config.log('Found wallet address in outbox[0].wallet_address:', walletAddress);
+            }
+            
+            // Fallback to other possible locations
+            if (!walletAddress) {
+                walletAddress = response.data.walletAddress || 
+                               response.data.wallet_address ||
+                               response.data.address ||
+                               response.data.from ||
+                               response.data.owner;
+                
+                if (walletAddress) {
+                    this.config.log('Found wallet address in fallback location:', walletAddress.substring(0, 8) + '...');
+                }
+            }
+            
+            if (walletAddress) {
+                this.config.log('Wallet address from whoami:', walletAddress.substring(0, 8) + '...');
+                
+                // Store the wallet address 
+                this.walletAddress = walletAddress;
+                
+                // Immediately update the wallet display element
+                const walletDisplay = document.getElementById('wallet-display');
+                if (walletDisplay) {
+                    const displayAddress = walletAddress.substring(0, 6) + '...' + walletAddress.slice(-6);
+                    walletDisplay.textContent = displayAddress;
+                    walletDisplay.title = 'Click to copy wallet address';
+                    walletDisplay.style.cursor = 'pointer';
+                    walletDisplay.classList.remove('no-wallet');
+                    walletDisplay.setAttribute('data-full-address', walletAddress);
+                    
+                    // Add click handler for copying
+                    walletDisplay.onclick = () => {
+                        if (typeof window.copyToClipboard === 'function') {
+                            window.copyToClipboard(walletAddress, 'Wallet Address');
+                        } else {
+                            navigator.clipboard.writeText(walletAddress).catch(() => {
+                                console.log('Failed to copy wallet address');
+                            });
+                        }
+                    };
+                    
+                    this.config.log('Updated wallet display to:', displayAddress);
+                }
+                
+                // Dispatch wallet update event for other components
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('hyperbeam-wallet-update', {
+                        detail: {
+                            walletAddress: walletAddress,
+                            source: 'whoami'
+                        }
+                    }));
+                }
+            }
+        }
+        
+        this.config.log('Whoami request completed successfully');
+        return {
+            success: true,
+            walletAddress: this.walletAddress,
+            response: response
+        };
     }
 }
 

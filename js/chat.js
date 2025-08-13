@@ -52,6 +52,9 @@ class ChatSystem {
         this.messageContainer = messageContainer;
         this.statusCallback = statusCallback;
         
+        // Ensure HyperBEAM has wallet context (ONCE per session)
+        await this.initializeWalletContext();
+        
         // Get initial slot
         await this.initializeSlotMonitoring();
         
@@ -62,6 +65,44 @@ class ChatSystem {
         this.startMessagePolling();
         
         this.config.log('Chat system initialized with UI components');
+    }
+
+    /**
+     * Initialize wallet context with HyperBEAM (ONCE per session)
+     */
+    async initializeWalletContext() {
+        try {
+            this.config.log('Initializing wallet context with HyperBEAM (session whoami call)');
+            const whoamiResult = await this.api.whoami();
+            if (whoamiResult.success) {
+                this.config.log('Session whoami successful - HyperBEAM has wallet context');
+                
+                // If we got a wallet address from whoami, make sure it updates the display immediately
+                if (whoamiResult.walletAddress && whoamiResult.walletAddress !== 'Connected') {
+                    this.config.log('Wallet address from session whoami:', whoamiResult.walletAddress.substring(0, 8) + '...');
+                    
+                    // Update the auth system's internal state
+                    if (this.auth && typeof this.auth.updateWalletAddress === 'function') {
+                        this.auth.updateWalletAddress(whoamiResult.walletAddress);
+                    }
+                    
+                    // Dispatch wallet update event to ensure UI gets updated
+                    if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new CustomEvent('hyperbeam-wallet-update', {
+                            detail: {
+                                walletAddress: whoamiResult.walletAddress,
+                                source: 'session-whoami'
+                            }
+                        }));
+                    }
+                }
+            } else {
+                this.config.log('Session whoami failed, but continuing anyway:', whoamiResult.error);
+            }
+        } catch (error) {
+            this.config.log('Error during wallet context initialization:', error);
+            // Continue anyway - HyperBEAM may still work with automatic wallet generation
+        }
     }
 
     /**
@@ -87,7 +128,15 @@ class ChatSystem {
      * Send a chat message using HyperBEAM direct push
      */
     async sendMessage(messageContent, options = {}) {
-        if (!messageContent.trim()) {
+        // Comprehensive input validation and sanitization
+        if (typeof messageContent !== 'string') {
+            return { success: false, error: 'Invalid message format' };
+        }
+        
+        // Sanitize the message content
+        messageContent = messageContent.trim();
+        
+        if (!messageContent) {
             return { success: false, error: 'Message cannot be empty' };
         }
 
@@ -98,13 +147,28 @@ class ChatSystem {
                 error: `Message too long. Max ${this.config.MESSAGES.MAX_MESSAGE_LENGTH} characters.` 
             };
         }
+        
+        // Additional security: check for suspicious patterns
+        const suspiciousPatterns = [
+            /<script[^>]*>.*?<\/script>/gi,
+            /javascript:/gi,
+            /vbscript:/gi,
+            /on\w+\s*=/gi
+        ];
+        
+        for (const pattern of suspiciousPatterns) {
+            if (pattern.test(messageContent)) {
+                return { success: false, error: 'Message contains potentially harmful content' };
+            }
+        }
 
         const messageId = ++this.lastMessageId;
         const timestamp = Date.now();
         
-        // Get username from the input field or default to 'Chat User'
+        // Get username from the input field with sanitization
         const usernameInput = document.getElementById('username-input');
-        const username = usernameInput?.value?.trim() || 'Chat User';
+        const rawUsername = usernameInput?.value?.trim() || 'Chat User';
+        const username = this.sanitizeUsername(rawUsername);
         
         this.config.debug(`Sending with username: ${username}`);
         
@@ -153,7 +217,7 @@ class ChatSystem {
             }, 15000); // 15 second timeout
 
             // Send using direct push method including username as a tag
-            const result = await this.api.pushMessage(messageContent, 'chat-message', {
+            const result = await this.api.pushMessage(messageContent, 'chat_message', {
                 username: username
             });
 
@@ -1282,6 +1346,30 @@ class ChatSystem {
             }
         }
         return {};
+    }
+
+    /**
+     * Sanitize username input to prevent XSS and ensure clean display
+     */
+    sanitizeUsername(rawUsername) {
+        if (typeof rawUsername !== 'string') return 'Chat User';
+        
+        // Trim and limit length
+        let username = rawUsername.trim();
+        if (!username) return 'Chat User';
+        
+        // Limit length to prevent UI issues
+        if (username.length > 50) {
+            username = username.substring(0, 50) + '...';
+        }
+        
+        // Remove potentially dangerous characters
+        username = username.replace(/[<>'"&]/g, '');
+        
+        // Remove excessive whitespace
+        username = username.replace(/\s+/g, ' ');
+        
+        return username || 'Chat User';
     }
 
     /**

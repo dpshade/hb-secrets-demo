@@ -14,7 +14,7 @@ const CONFIG = {
     ],
     
     // AO Process Configuration
-    _processId: 'xN8_ogs9ZfznfG6Eg2508cukOz_f65HvOkIiT9RsKLI',
+    _processId: 'qQwarXWdrLhJ4Kc1WdnmVWbYPvLgkRKvmcePIlv4yaQ',
     
     get PROCESS_ID() {
         return this._processId;
@@ -55,9 +55,10 @@ const CONFIG = {
         
         // Process Operations
         PROCESS_NOW: (processId) => `/${processId}/now/~json@1.0/serialize`,
+        PROCESS_NOW_MESSAGES: (processId) => `/${processId}/now/messages/serialize~json@1.0`,
         PROCESS_PUSH: (processId, action) => `/${processId}/push&action=${action}&!/serialize~json@1.0`,
         PROCESS_PUSH_WITH_PARAMS: (processId, action, params) => {
-            // Manual parameter construction to avoid unnecessary URL encoding
+            // Manual parameter construction for HyperBEAM URLs
             const queryParams = Object.entries(params)
                 .map(([key, value]) => `${key}=${value}`)
                 .join('&');
@@ -106,16 +107,16 @@ const CONFIG = {
             { name: 'Version', value: '1.0' }
         ],
         CHAT_TAGS: [
-            { name: 'Action', value: 'chat-message' },
+            { name: 'Action', value: 'chat_message' },
             { name: 'Type', value: 'text' }
         ]
     },
     
     // Timing Configuration
     TIMING: {
-        MESSAGE_POLL_INTERVAL: 2000,
+        MESSAGE_POLL_INTERVAL: 3500,
         STATS_UPDATE_INTERVAL: 5000,
-        SLOT_POLL_INTERVAL: 500,
+        SLOT_POLL_INTERVAL: 2000,
         SLOT_ADVANCEMENT_TIMEOUT: 10000,
         POST_SEND_DELAY: 1000,
         HEALTH_CHECK_INTERVAL: 30000

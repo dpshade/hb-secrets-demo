@@ -6,8 +6,10 @@ class ChatHistory {
         this.api = hyperbeamApi;
         this.processId = processId;
         this.cachedMessages = new Map(); // slot -> messages
+        this.messageCache = []; // Simple array cache for /now/messages results
         this.currentSlot = 0;
         this.isLoading = false;
+        this.lastFetchTime = 0;
     }
 
     async getCurrentSlot() {
@@ -36,12 +38,64 @@ class ChatHistory {
         return this.currentSlot;
     }
 
-    // Try to get raw message data with tags from process inbox
-    async getRawMessagesFromSlot(slot) {
-        // Note: HyperBEAM inbox endpoint doesn't support from/to query parameters
-        // Messages are retrieved via compute endpoint instead in getMessagesFromSlot()
-        // This function returns empty array for compatibility
+    /**
+     * Fetch messages using the improved /now/messages endpoint
+     * This returns a clean structured format: { "1": { content, timestamp, username, wallet_address }, "device": "json@1.0" }
+     */
+    async fetchMessagesFromNowEndpoint() {
+        try {
+            const endpoint = this.api.config.getEndpoint('PROCESS_NOW_MESSAGES', this.processId);
+            console.log('Fetching messages from /now/messages endpoint:', endpoint);
+            
+            const response = await this.api.makeRequest(endpoint, {
+                method: 'GET'
+            });
+
+            if (response.ok && response.data) {
+                const data = response.data;
+                console.log('Raw /now/messages response:', data);
+                
+                // Parse the new structured format
+                const messages = [];
+                for (const [key, messageData] of Object.entries(data)) {
+                    // Skip system fields like "device"
+                    if (key === 'device' || !messageData || typeof messageData !== 'object') {
+                        continue;
+                    }
+                    
+                    // Convert to our standard message format
+                    const message = {
+                        content: messageData.content,
+                        username: messageData.username || 'Chat User',
+                        timestamp: parseInt(messageData.timestamp) || Date.now(),
+                        walletAddress: messageData.wallet_address || null,
+                        id: key // Use the key as message ID
+                    };
+                    
+                    messages.push(message);
+                }
+                
+                // Sort by timestamp (most recent first for display)
+                messages.sort((a, b) => a.timestamp - b.timestamp);
+                
+                console.log(`Fetched ${messages.length} messages via /now/messages endpoint`);
+                
+                // Update cache
+                this.messageCache = messages;
+                this.lastFetchTime = Date.now();
+                
+                return messages;
+            }
+        } catch (error) {
+            console.error('Error fetching messages from /now/messages endpoint:', error);
+        }
+        
         return [];
+    }
+
+    // Legacy function - no longer used since we have /now/messages endpoint
+    async getRawMessagesFromSlot(slot) {
+        return []; // Stub for compatibility
     }
 
     async getMessagesFromSlot(slot) {
@@ -159,13 +213,25 @@ class ChatHistory {
         return [];
     }
 
+    /**
+     * Get all chat history - now uses the /now/messages endpoint primarily
+     * Falls back to slot-based retrieval only if needed
+     */
     async getAllChatHistory(maxSlots = 40, startFromSlot = null) {
         if (this.isLoading) return [];
         
         this.isLoading = true;
         
         try {
-            // Get current slot
+            // Try the new /now/messages endpoint first - this is much more efficient
+            const messages = await this.fetchMessagesFromNowEndpoint();
+            if (messages.length > 0) {
+                console.log(`Loaded ${messages.length} messages via /now/messages endpoint`);
+                return messages.slice(-maxSlots); // Return the most recent messages up to maxSlots
+            }
+
+            // Fallback to slot-based method only if /now/messages fails
+            console.log('Falling back to slot-based message retrieval');
             const currentSlot = await this.getCurrentSlot();
             
             // Determine slot range - work backwards from current slot
@@ -206,27 +272,26 @@ class ChatHistory {
         }
     }
 
-    async getLatestMessages(count = 10) {
+    /**
+     * Get the latest N messages - simplified to use the primary /now/messages endpoint
+     */
+    async getLatestMessages(count = 10, forceFetch = false) {
         try {
-            const currentSlot = await this.getCurrentSlot();
-            const messages = [];
-            
-            // Check slots backwards from current for recent messages
-            for (let slot = currentSlot; slot >= Math.max(1, currentSlot - 20); slot--) {
-                const slotMessages = await this.getMessagesFromSlot(slot);
-                messages.push(...slotMessages);
-                
-                // Stop early if we have enough messages
-                if (messages.length >= count * 2) break;
+            // Use the cached messages if available and not forcing fetch
+            if (!forceFetch && this.messageCache.length > 0) {
+                return this.messageCache.slice(-count).reverse(); // Get last N messages, newest first
             }
-
-            // Sort and return latest messages (most recent first)
-            messages.sort((a, b) => {
-                if (a.slot !== b.slot) return b.slot - a.slot; // Most recent slot first
-                return parseInt(b.reference || '0') - parseInt(a.reference || '0'); // Most recent reference first
-            });
-
-            return messages.slice(0, count);
+            
+            // Fetch fresh messages from the /now/messages endpoint
+            const messages = await this.fetchMessagesFromNowEndpoint();
+            if (messages.length > 0) {
+                // Return the latest messages, up to the requested count
+                return messages.slice(-count).reverse(); // Get last N messages, newest first
+            }
+            
+            // If /now/messages fails, return empty array (no complex fallback for getLatestMessages)
+            console.warn('No messages available from /now/messages endpoint');
+            return [];
             
         } catch (error) {
             console.error('Error getting latest messages:', error);
