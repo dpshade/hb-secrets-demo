@@ -1839,17 +1839,16 @@
                     }
                 });
                 
-                // Auth status updates
-                window.addEventListener('hyperbeam-auth-success', (e) => {
+                // Store event handler references for cleanup
+                this.authSuccessHandler = (e) => {
                     this.updateAuthStatus(true, e.detail);
-                });
+                };
                 
-                window.addEventListener('hyperbeam-auth-signout', () => {
+                this.authSignoutHandler = () => {
                     this.updateAuthStatus(false);
-                });
+                };
                 
-                // Wallet update from push response
-                window.addEventListener('hyperbeam-wallet-update', (e) => {
+                this.walletUpdateHandler = (e) => {
                     const { walletAddress, source } = e.detail;
                     CONFIG.debug(`Wallet update from ${source}:`, walletAddress);
                     
@@ -1863,9 +1862,30 @@
                         walletAddress: walletAddress,
                         method: source || 'push-response'
                     });
+                };
+                
+                // Auth status updates
+                window.addEventListener('hyperbeam-auth-success', this.authSuccessHandler);
+                window.addEventListener('hyperbeam-auth-signout', this.authSignoutHandler);
+                window.addEventListener('hyperbeam-wallet-update', this.walletUpdateHandler);
+                
+                // Page unload cleanup to prevent memory leaks
+                window.addEventListener('beforeunload', () => {
+                    this.cleanup();
                 });
                 
-                CONFIG.log('Event listeners set up');
+                // Also cleanup on visibility change (mobile background)
+                document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'hidden') {
+                        // Page is going to background, cleanup resources
+                        this.pausePeriodicOperations();
+                    } else {
+                        // Page is back in foreground, resume operations
+                        this.resumePeriodicOperations();
+                    }
+                });
+                
+                CONFIG.log('Event listeners set up including cleanup handlers');
             }
             
             async attemptAuthentication() {
@@ -2405,8 +2425,13 @@
             // loadMoreHistory method removed - not needed for demo
             
             startPeriodicUpdates() {
+                // Clear any existing interval to prevent duplicates
+                if (this.periodicInterval) {
+                    clearInterval(this.periodicInterval);
+                }
+                
                 // Update performance metrics and slot tracking every 5 seconds
-                setInterval(() => {
+                this.periodicInterval = setInterval(() => {
                     this.updatePerformanceMetrics();
                     this.updateCurrentSlot(); // This now handles HyperBEAM status based on at-slot responses
                 }, 5000);
@@ -2427,6 +2452,56 @@
             
             showSuccessMessage(message) {
                 console.log('Success:', message);
+            }
+            
+            /**
+             * Memory leak prevention - cleanup all resources
+             */
+            cleanup() {
+                CONFIG.log('Cleaning up application resources...');
+                
+                // Stop chat polling
+                if (this.chat) {
+                    this.chat.destroy();
+                }
+                
+                // Clear periodic updates
+                if (this.periodicInterval) {
+                    clearInterval(this.periodicInterval);
+                    this.periodicInterval = null;
+                }
+                
+                // Remove event listeners to prevent memory leaks
+                window.removeEventListener('hyperbeam-auth-success', this.authSuccessHandler);
+                window.removeEventListener('hyperbeam-auth-signout', this.authSignoutHandler);
+                window.removeEventListener('hyperbeam-wallet-update', this.walletUpdateHandler);
+                
+                CONFIG.log('Application cleanup completed');
+            }
+            
+            /**
+             * Pause resource-intensive operations when page is hidden
+             */
+            pausePeriodicOperations() {
+                CONFIG.log('Pausing periodic operations for background mode');
+                if (this.chat) {
+                    this.chat.stopMessagePolling();
+                }
+                if (this.periodicInterval) {
+                    clearInterval(this.periodicInterval);
+                    this.periodicInterval = null;
+                }
+            }
+            
+            /**
+             * Resume operations when page becomes visible again
+             */
+            resumePeriodicOperations() {
+                CONFIG.log('Resuming periodic operations for foreground mode');
+                if (this.chat) {
+                    this.chat.startMessagePolling();
+                }
+                this.startPeriodicUpdates();
             }
         }
         
