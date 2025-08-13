@@ -132,7 +132,15 @@ class ChatSystem {
         const rawUsername = usernameInput?.value?.trim() || 'Chat User';
         const username = this.sanitizeUsername(rawUsername);
         
-        this.config.debug(`Sending with username: ${username}`);
+        // Get wallet address for the message
+        const walletAddress = this.auth.getWalletAddress();
+        
+        this.config.debug(`Sending message with user info:`, {
+            username: username,
+            walletAddress: walletAddress?.substring(0, 8) + '...' || 'none',
+            fullWalletAddress: walletAddress,
+            messageId: messageId
+        });
         
         this.config.log(`Sending message ${messageId}: "${messageContent}"`);
         this.updateStatus('Sending message...', '');
@@ -178,9 +186,10 @@ class ChatSystem {
                 }
             }, 15000); // 15 second timeout
 
-            // Send using direct push method including username as a tag
+            // Send using direct push method including username and wallet address as tags
             const result = await this.api.pushMessage(messageContent, 'chat_message', {
-                username: username
+                username: username,
+                wallet_address: this.auth.getWalletAddress()
             });
 
             // Update message status
@@ -1097,20 +1106,66 @@ class ChatSystem {
             message.walletAddress !== 'auto-generated' && currentWalletAddress !== 'auto-generated' &&
             message.walletAddress.length === 43 && currentWalletAddress.length === 43) {
             isOwnMessage = message.walletAddress === currentWalletAddress;
-            this.config.debug(`Own message check via wallet: ${message.walletAddress === currentWalletAddress} (${message.walletAddress} vs ${currentWalletAddress})`);
+            this.config.debug(`🔍 WALLET CHECK: Own message via wallet comparison: ${message.walletAddress === currentWalletAddress}`, {
+                messageWallet: message.walletAddress.substring(0, 8) + '...',
+                currentWallet: currentWalletAddress.substring(0, 8) + '...',
+                fullMessageWallet: message.walletAddress,
+                fullCurrentWallet: currentWalletAddress,
+                messageId: message.id,
+                messageAuthor: message.author,
+                messageSource: message.source || 'unknown'
+            });
         } 
         // Method 2: Method/source-based detection (for sent messages)
         else if (message.method === 'direct-push' || (message.source && message.source !== 'chat-history')) {
             isOwnMessage = true;
-            this.config.debug(`Own message check via method/source: true (${message.method || message.source})`);
+            this.config.debug(`🚀 METHOD CHECK: Own message via method/source: true`, {
+                method: message.method,
+                source: message.source,
+                messageId: message.id,
+                messageAuthor: message.author,
+                reason: 'direct-push or non-history source'
+            });
         }
         // Method 3: Username comparison (fallback)
         else if (message.author && currentUsername && message.author === currentUsername) {
             isOwnMessage = true;
-            this.config.debug(`Own message check via username: true (${message.author} === ${currentUsername})`);
+            this.config.debug(`👤 USERNAME CHECK: Own message via username comparison: true`, {
+                messageAuthor: message.author,
+                currentUsername: currentUsername,
+                messageId: message.id,
+                reason: 'username match fallback'
+            });
         }
         
-        this.config.debug(`Final own message determination: ${isOwnMessage} for message from ${message.author} (wallet: ${message.walletAddress})`);
+        // Enhanced final determination logging
+        if (!isOwnMessage) {
+            this.config.debug(`❌ NOT OWN MESSAGE: Failed all ownership checks`, {
+                messageAuthor: message.author,
+                currentUsername: currentUsername,
+                messageWallet: message.walletAddress?.substring(0, 8) + '...' || 'none',
+                currentWallet: currentWalletAddress?.substring(0, 8) + '...' || 'none',
+                messageMethod: message.method || 'none',
+                messageSource: message.source || 'none',
+                walletLengthCheck: message.walletAddress?.length === 43 && currentWalletAddress?.length === 43,
+                walletNotAutoGen: message.walletAddress !== 'auto-generated' && currentWalletAddress !== 'auto-generated',
+                reasons: {
+                    walletFailed: !message.walletAddress || !currentWalletAddress || message.walletAddress === 'auto-generated' || currentWalletAddress === 'auto-generated' || message.walletAddress.length !== 43 || currentWalletAddress.length !== 43,
+                    methodFailed: !(message.method === 'direct-push' || (message.source && message.source !== 'chat-history')),
+                    usernameFailed: !(message.author && currentUsername && message.author === currentUsername)
+                }
+            });
+        } else {
+            this.config.debug(`✅ OWN MESSAGE: Successfully identified as user's message`, {
+                messageId: message.id,
+                messageAuthor: message.author,
+                detectionMethod: message.walletAddress && currentWalletAddress && 
+                    message.walletAddress !== 'auto-generated' && currentWalletAddress !== 'auto-generated' &&
+                    message.walletAddress.length === 43 && currentWalletAddress.length === 43 && 
+                    message.walletAddress === currentWalletAddress ? 'wallet' :
+                    (message.method === 'direct-push' || (message.source && message.source !== 'chat-history')) ? 'method/source' : 'username'
+            });
+        }
         
         messageEl.classList.toggle('own-message', isOwnMessage);
         messageEl.classList.toggle('process-message', !isOwnMessage);
