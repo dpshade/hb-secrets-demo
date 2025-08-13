@@ -13,6 +13,8 @@ class ChatSystem {
         
         // Message storage and state
         this.messages = [];
+        this.displayedMessageIds = new Set(); // Track which messages are currently displayed
+        this.maxDisplayMessages = 150; // Limit displayed messages for performance
         this.lastKnownSlot = null;
         this.lastMessageId = 0;
         this.isPolling = false;
@@ -259,8 +261,11 @@ class ChatSystem {
                     }
                 }));
                 
-                // IMMEDIATELY check slots and replace pending message with computed result
+                // IMMEDIATELY check for computed result with faster timing
                 this.checkForNewMessagesAndReplacePending(messageId, messageContent, username);
+                
+                // Also do an immediate check without delay for even faster confirmation
+                this.immediatelyCheckForComputedMessage(messageId, messageContent, username);
                 
                 this.emit('messageSent', { message, result });
                 
@@ -293,7 +298,7 @@ class ChatSystem {
         }
         
         this.isPolling = true;
-        this.config.log('Starting message polling');
+        this.config.log(`Starting message polling every ${this.config.TIMING.MESSAGE_POLL_INTERVAL}ms`);
         
         this.pollInterval = setInterval(() => {
             this.checkForNewMessages();
@@ -378,31 +383,104 @@ class ChatSystem {
 
 
     /**
-     * Check for new messages and slot advancement
+     * Check if we have any new messages to fetch (optimized check)
+     */
+    async hasNewMessages() {
+        try {
+            const currentCount = await this.chatHistory.getMessageCount();
+            const hasNew = currentCount > this.chatHistory.lastMessageCount;
+            if (hasNew) {
+                this.config.debug(`New messages available: ${currentCount} > ${this.chatHistory.lastMessageCount}`);
+            }
+            return hasNew;
+        } catch (error) {
+            this.config.debug('Error checking for new messages:', error);
+            return false; // Assume no new messages on error to avoid unnecessary requests
+        }
+    }
+
+    /**
+     * Check for new messages and slot advancement - OPTIMIZED for scalability
      */
     async checkForNewMessages() {
         try {
+            // Quick check: do we even have new messages?
+            if (!(await this.hasNewMessages())) {
+                // Still check slots for pending message handling
+                const currentSlot = await this.api.getCurrentSlot();
+                if (currentSlot > this.lastKnownSlot) {
+                    this.lastKnownSlot = currentSlot;
+                    this.checkPendingMessages(currentSlot);
+                    await this.updateStatsDuringPolling();
+                }
+                return; // No new messages, exit early
+            }
+            
+            // Use the efficient fetchNewMessages method that only gets truly new messages
+            const fetchedNewMessages = await this.chatHistory.fetchNewMessages();
+            
+            // Process new messages if any were found
+            if (fetchedNewMessages.length > 0) {
+                const processedNewMessages = [];
+                for (const historyMessage of fetchedNewMessages) {
+                    // Create a consistent message ID
+                    const messageId = historyMessage.id ? 
+                        `msg-${historyMessage.id}` : 
+                        `msg-${historyMessage.timestamp}`;
+                    
+                    // Check if this message is already displayed (most efficient check)
+                    if (!this.displayedMessageIds.has(messageId)) {
+                        // Also check for content-based duplicates as fallback
+                        const existingMessage = this.messages.find(m => 
+                            m.content === historyMessage.content && 
+                            m.author === historyMessage.username &&
+                            Math.abs(m.timestamp - historyMessage.timestamp) < 1000
+                        );
+                        
+                        if (!existingMessage) {
+                        const preparedMessage = await this.prepareHistoryMessage(historyMessage);
+                            if (preparedMessage) {
+                                // Override the ID to ensure consistency
+                                preparedMessage.id = messageId;
+                                processedNewMessages.push(preparedMessage);
+                            }
+                        }
+                    }
+                }
+                
+                if (processedNewMessages.length > 0) {
+                    this.config.debug(`Adding ${processedNewMessages.length} new messages to display`);
+                    
+                    // Sort new messages by timestamp before adding
+                    processedNewMessages.sort((a, b) => {
+                        if (a.timestamp !== b.timestamp) {
+                            return a.timestamp - b.timestamp;
+                        }
+                        return 0;
+                    });
+                    
+                    // Use efficient addition method instead of full re-render
+                    this.addNewMessagesOnly(processedNewMessages);
+                }
+            }
+            
+            // Also check for slot advancement
             const currentSlot = await this.api.getCurrentSlot();
             
             if (currentSlot !== null && currentSlot > this.lastKnownSlot) {
                 this.config.log(`Slot advanced: ${this.lastKnownSlot} → ${currentSlot}`);
                 
-                // Check for new messages in advanced slots
-                for (let slot = this.lastKnownSlot + 1; slot <= currentSlot; slot++) {
-                    await this.checkSlotForMessages(slot);
-                }
-                
-                // Also refresh chat history to catch any missed messages
-                await this.refreshLatestHistory();
-                
                 this.lastKnownSlot = currentSlot;
                 
                 // Update any pending messages that might have executed
                 this.checkPendingMessages(currentSlot);
+                
+                // Update statistics
+                await this.updateStatsDuringPolling();
             }
             
         } catch (error) {
-            this.config.debug('Error checking for messages:', error);
+            this.config.log('Error checking for messages:', error);
         }
     }
 
@@ -489,27 +567,31 @@ class ChatSystem {
      * Prepare a message from chat history without adding it to UI
      */
     async prepareHistoryMessage(historyMessage) {
-        this.config.debug(`Preparing history message from slot ${historyMessage.slot}:`, historyMessage.content);
+        this.config.debug(`Preparing history message:`, historyMessage.content);
 
         // Extract username from message metadata/tags (now properly stored by AO process)
         let username = 'Chat User'; // Default username
         
-        if (historyMessage.tags && historyMessage.tags.username) {
+        // Handle both formats: slot-based messages (with tags) and /now/messages format (direct fields)
+        if (historyMessage.username) {
+            username = historyMessage.username;
+        } else if (historyMessage.tags && historyMessage.tags.username) {
             username = historyMessage.tags.username;
         } else if (historyMessage.tags && historyMessage.tags.Username) {
             username = historyMessage.tags.Username;
-        } else if (historyMessage.username) {
-            username = historyMessage.username;
         }
         
         // Extract wallet address from message metadata/tags
         let messageWalletAddress = null;
-        if (historyMessage.tags && historyMessage.tags.wallet_address) {
+        // Handle both formats: direct walletAddress field or from tags
+        if (historyMessage.walletAddress) {
+            messageWalletAddress = historyMessage.walletAddress;
+        } else if (historyMessage.wallet_address) {
+            messageWalletAddress = historyMessage.wallet_address;
+        } else if (historyMessage.tags && historyMessage.tags.wallet_address) {
             messageWalletAddress = historyMessage.tags.wallet_address;
         } else if (historyMessage.tags && historyMessage.tags.Wallet_Address) {
             messageWalletAddress = historyMessage.tags.Wallet_Address;
-        } else if (historyMessage.walletAddress) {
-            messageWalletAddress = historyMessage.walletAddress;
         }
         
         // Get current user info for comparison
@@ -550,14 +632,27 @@ class ChatSystem {
         }
         
         // This is a new message from someone else - prepare it
+        // Use consistent ID format for all messages
+        let messageId;
+        if (historyMessage.id) {
+            // From /now/messages endpoint - use the numeric key as ID
+            messageId = `msg-${historyMessage.id}`;
+        } else if (historyMessage.slot && historyMessage.reference) {
+            // From slot-based retrieval
+            messageId = `history-${historyMessage.slot}-${historyMessage.reference}`;
+        } else {
+            // Fallback to timestamp-based ID
+            messageId = `msg-${historyMessage.timestamp}`;
+        }
+            
         const processMessage = {
-            id: `history-${historyMessage.slot}-${historyMessage.reference}`,
+            id: messageId,
             content: historyMessage.content,
             timestamp: historyMessage.timestamp,
             author: username,
             status: 'received',
-            slot: historyMessage.slot,
-            reference: historyMessage.reference,
+            slot: historyMessage.slot || null,
+            reference: historyMessage.reference || null,
             source: 'chat-history',
             walletAddress: messageWalletAddress
         };
@@ -567,22 +662,34 @@ class ChatSystem {
 
     /**
      * Display multiple messages at once after they've been loaded and sorted
+     * Implements message limit and tracking to avoid refetching displayed messages
      */
     displayMessages(messages) {
-        // Clear existing messages from UI but keep them in memory for deduplication
+        // Limit to most recent messages to maintain performance
+        const messagesToDisplay = messages.slice(-this.maxDisplayMessages);
+        
+        // Update our internal messages array
+        this.messages = [...messagesToDisplay];
+        
+        // Clear and update displayed message IDs tracking
+        this.displayedMessageIds.clear();
+        messagesToDisplay.forEach(msg => {
+            if (msg.id) {
+                this.displayedMessageIds.add(msg.id);
+            }
+        });
+        
+        // Clear existing messages from UI
         if (this.messageContainer) {
             this.messageContainer.innerHTML = '';
         }
         
-        // Reset messages array and add all prepared messages
-        this.messages = [...messages];
-        
-        // Render all messages at once
+        // Render messages
         if (this.messageContainer) {
             // Create document fragment for efficient DOM manipulation
             const fragment = document.createDocumentFragment();
             
-            messages.forEach(message => {
+            messagesToDisplay.forEach(message => {
                 const messageEl = document.createElement('div');
                 messageEl.className = 'message';
                 messageEl.setAttribute('data-message-id', message.id);
@@ -608,15 +715,98 @@ class ChatSystem {
             this.scrollToBottom(true, 1200);
         }
         
-        this.config.debug(`Displayed ${messages.length} messages`);
+        this.config.debug(`Displayed ${messagesToDisplay.length}/${messages.length} messages (${this.displayedMessageIds.size} tracked)`);
+    }
+
+    /**
+     * Efficiently add only new messages to the display without full re-render
+     */
+    addNewMessagesOnly(newMessages) {
+        if (!newMessages || newMessages.length === 0) return;
+        
+        // Filter out messages we're already displaying
+        const trulyNewMessages = newMessages.filter(msg => 
+            msg.id && !this.displayedMessageIds.has(msg.id)
+        );
+        
+        if (trulyNewMessages.length === 0) {
+            this.config.debug('No truly new messages to add');
+            return;
+        }
+        
+        // Add to our messages array
+        this.messages.push(...trulyNewMessages);
+        
+        // Limit total messages to maintain performance
+        if (this.messages.length > this.maxDisplayMessages) {
+            const excess = this.messages.length - this.maxDisplayMessages;
+            const removedMessages = this.messages.splice(0, excess);
+            
+            // Remove IDs of messages we're no longer displaying
+            removedMessages.forEach(msg => {
+                if (msg.id) this.displayedMessageIds.delete(msg.id);
+            });
+            
+            // Re-render if we removed messages (to maintain DOM consistency)
+            this.displayMessages(this.messages);
+            return;
+        }
+        
+        // Add new message IDs to tracking
+        trulyNewMessages.forEach(msg => {
+            if (msg.id) this.displayedMessageIds.add(msg.id);
+        });
+        
+        // Efficiently append new messages to DOM
+        if (this.messageContainer) {
+            const fragment = document.createDocumentFragment();
+            
+            trulyNewMessages.forEach(message => {
+                const messageEl = document.createElement('div');
+                messageEl.className = 'message';
+                messageEl.setAttribute('data-message-id', message.id);
+                
+                // Add pending/confirmed state classes
+                if (message.isPending || message.status === 'pending') {
+                    messageEl.classList.add('pending');
+                } else if (message.status === 'confirmed') {
+                    messageEl.classList.add('confirmed');
+                }
+                
+                this.updateMessageElement(messageEl, message);
+                fragment.appendChild(messageEl);
+            });
+            
+            // Append new messages to DOM
+            this.messageContainer.appendChild(fragment);
+            
+            // Update grouping for new messages
+            this.updateAllMessageGrouping();
+            
+            // Scroll to bottom
+            this.scrollToBottom(true, 500);
+        }
+        
+        this.config.debug(`Added ${trulyNewMessages.length} new messages (${this.displayedMessageIds.size} total tracked)`);
     }
     
     /**
      * Display messages with staggered animation
      */
     displayMessagesWithAnimation(messages) {
-        // Reset messages array and add all prepared messages
-        this.messages = [...messages];
+        // Limit to most recent messages to maintain performance
+        const messagesToDisplay = messages.slice(-this.maxDisplayMessages);
+        
+        // Update our internal messages array
+        this.messages = [...messagesToDisplay];
+        
+        // Clear and update displayed message IDs tracking
+        this.displayedMessageIds.clear();
+        messagesToDisplay.forEach(msg => {
+            if (msg.id) {
+                this.displayedMessageIds.add(msg.id);
+            }
+        });
         
         // Render messages with progressive content revelation
         if (this.messageContainer) {
@@ -624,7 +814,7 @@ class ChatSystem {
             // Create document fragment for efficient DOM manipulation
             const fragment = document.createDocumentFragment();
             
-            messages.forEach((message, index) => {
+            messagesToDisplay.forEach((message, index) => {
                 const messageEl = document.createElement('div');
                 messageEl.className = 'message message-stagger';
                 messageEl.setAttribute('data-message-id', message.id);
@@ -732,12 +922,15 @@ class ChatSystem {
         
         // Extract wallet address from message metadata/tags
         let messageWalletAddress = null;
-        if (historyMessage.tags && historyMessage.tags.wallet_address) {
+        // Handle both formats: direct walletAddress field or from tags
+        if (historyMessage.walletAddress) {
+            messageWalletAddress = historyMessage.walletAddress;
+        } else if (historyMessage.wallet_address) {
+            messageWalletAddress = historyMessage.wallet_address;
+        } else if (historyMessage.tags && historyMessage.tags.wallet_address) {
             messageWalletAddress = historyMessage.tags.wallet_address;
         } else if (historyMessage.tags && historyMessage.tags.Wallet_Address) {
             messageWalletAddress = historyMessage.tags.Wallet_Address;
-        } else if (historyMessage.walletAddress) {
-            messageWalletAddress = historyMessage.walletAddress;
         }
         
         // Get current user info for comparison
@@ -1284,6 +1477,75 @@ class ChatSystem {
             received: historyStats.receivedMessages || 0,
             total: historyStats.totalMessages || 0
         };
+    }
+
+    /**
+     * Immediately check for computed message (no delay)
+     */
+    async immediatelyCheckForComputedMessage(pendingMessageId, messageContent, username) {
+        try {
+            // Check immediately without any delay
+            const latestMessages = await this.chatHistory.fetchMessagesFromNowEndpoint();
+            
+            // Look for our message in the latest results
+            const computedMessage = latestMessages.find(msg => 
+                msg.content === messageContent && 
+                (msg.username === username)
+            );
+            
+            if (computedMessage) {
+                this.config.debug(`IMMEDIATE: Found computed message for pending ${pendingMessageId}`);
+                
+                // Update the existing pending message in-place to confirmed state
+                const pendingMessage = this.messages.find(m => m.id === pendingMessageId);
+                if (pendingMessage && pendingMessage.isPending) {
+                    // Update message properties
+                    pendingMessage.status = 'confirmed';
+                    pendingMessage.isPending = false;
+                    pendingMessage.source = 'immediate-confirmed';
+                    
+                    // Update UI element immediately
+                    if (this.messageContainer) {
+                        const messageEl = this.messageContainer.querySelector(`[data-message-id="${pendingMessageId}"]`);
+                        if (messageEl) {
+                            messageEl.classList.remove('pending');
+                            messageEl.classList.add('confirmed');
+                            this.updateMessageElement(messageEl, pendingMessage);
+                        }
+                    }
+                    
+                    this.config.debug(`IMMEDIATE: Confirmed pending message ${pendingMessageId} immediately`);
+                    return true;
+                }
+            }
+            
+            return false; // No immediate match found
+            
+        } catch (error) {
+            this.config.debug('Error in immediate computed message check:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Update statistics during polling intervals (not just after sending messages)
+     */
+    async updateStatsDuringPolling() {
+        try {
+            // Emit an event so the UI can update statistics
+            const stats = await this.getStats();
+            
+            // Dispatch a custom event for the main UI to catch
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('hyperbeam-stats-update', {
+                    detail: stats
+                }));
+            }
+            
+            this.config.debug('Statistics updated during polling');
+        } catch (error) {
+            this.config.debug('Error updating stats during polling:', error);
+        }
     }
 
     /**

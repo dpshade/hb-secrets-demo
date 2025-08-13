@@ -1869,6 +1869,23 @@
                 window.addEventListener('hyperbeam-auth-signout', this.authSignoutHandler);
                 window.addEventListener('hyperbeam-wallet-update', this.walletUpdateHandler);
                 
+                // Statistics updates during polling
+                window.addEventListener('hyperbeam-stats-update', (event) => {
+                    const stats = event.detail;
+                    if (stats) {
+                        this.stats.sent = stats.sent || 0;
+                        this.stats.received = stats.received || 0;
+                        this.stats.total = stats.total || 0;
+                        
+                        // Update UI elements
+                        this.elements['stat-sent'].textContent = this.stats.sent;
+                        this.elements['stat-received'].textContent = this.stats.received;
+                        this.elements['stat-total'].textContent = this.stats.total;
+                        
+                        CONFIG.debug('Statistics updated from polling:', stats);
+                    }
+                });
+                
                 // Page unload cleanup to prevent memory leaks
                 window.addEventListener('beforeunload', () => {
                     this.cleanup();
@@ -1965,7 +1982,6 @@
                                 method: 'stored'
                             });
                             
-                            CONFIG.log('Wallet display should now show:', authData.walletAddress.substring(0, 6) + '...' + authData.walletAddress.slice(-6));
                             this.updateStatus('Wallet restored and imported to HyperBEAM memory', 'connected');
                             return true;
                         }
@@ -2057,7 +2073,6 @@
                                 method: 'whoami'
                             });
                             
-                            CONFIG.log('Wallet display should now show from HTML response:', walletAddress.substring(0, 6) + '...' + walletAddress.slice(-6));
                             this.updateStatus('Identity retrieved from HyperBEAM', 'connected');
                             return true;
                         }
@@ -2150,7 +2165,6 @@
                         method: 'whoami'
                     });
                     
-                    CONFIG.log('Wallet display should now show from JSON response:', walletAddress.substring(0, 6) + '...' + walletAddress.slice(-6));
                     this.updateStatus('Identity retrieved from HyperBEAM', 'connected');
                     return true;
                     
@@ -2298,15 +2312,8 @@
                 CONFIG.log('updateAuthStatus called:', { authenticated, walletAddress: authData.walletAddress, method: authData.method });
                 
                 if (authenticated && authData.walletAddress) {
-                    let displayAddress;
-                    
-                    // Special handling for auto-generated addresses
-                    if (authData.walletAddress === 'auto-generated') {
-                        displayAddress = 'auto-generated';
-                    } else {
-                        // Update wallet display in status bar - first 6 + last 6 characters
-                        displayAddress = authData.walletAddress.substring(0, 6) + '...' + authData.walletAddress.slice(-6);
-                    }
+                    let displayAddress = authData.walletAddress.substring(0, 6) + '...' + authData.walletAddress.slice(-6);
+                
                     
                     walletDisplay.textContent = displayAddress;
                     walletDisplay.title = 'Click to copy wallet address'; // Tooltip

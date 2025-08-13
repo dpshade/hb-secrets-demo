@@ -10,6 +10,8 @@ class ChatHistory {
         this.currentSlot = 0;
         this.isLoading = false;
         this.lastFetchTime = 0;
+        this.lastMessageCount = 0; // Track last known message count for efficient polling
+        this.messageCountCache = 0; // Cache the message count
     }
 
     async getCurrentSlot() {
@@ -39,21 +41,109 @@ class ChatHistory {
     }
 
     /**
+     * Get the current message count from the /lenmessages endpoint
+     */
+    async getMessageCount() {
+        try {
+            const endpoint = this.api.config.getEndpoint('PROCESS_MESSAGE_COUNT', this.processId);
+            const response = await this.api.makeRequest(endpoint, {
+                method: 'GET'
+            });
+
+            if (response.ok && response.data && response.data.body !== undefined) {
+                this.messageCountCache = parseInt(response.data.body);
+                console.log(`Current message count: ${this.messageCountCache}`);
+                return this.messageCountCache;
+            }
+        } catch (error) {
+            console.error('Error getting message count:', error);
+        }
+        return this.messageCountCache; // Return cached value on error
+    }
+
+    /**
+     * Fetch a specific message by its index (1-based)
+     */
+    async fetchIndividualMessage(messageIndex) {
+        try {
+            const endpoint = this.api.config.getEndpoint('PROCESS_INDIVIDUAL_MESSAGE', this.processId, messageIndex);
+            const response = await this.api.makeRequest(endpoint, {
+                method: 'GET'
+            });
+
+            if (response.ok && response.data) {
+                const messageData = response.data;
+                
+                // Convert to our standard message format
+                const message = {
+                    content: messageData.content,
+                    username: messageData.username || 'Chat User',
+                    timestamp: parseInt(messageData.timestamp) || Date.now(),
+                    walletAddress: messageData.wallet_address || null,
+                    id: messageIndex.toString() // Use index as message ID
+                };
+                
+                return message;
+            }
+        } catch (error) {
+            console.error(`Error fetching message ${messageIndex}:`, error);
+        }
+        return null;
+    }
+
+    /**
+     * Efficiently fetch only new messages since last check
+     */
+    async fetchNewMessages() {
+        try {
+            const currentCount = await this.getMessageCount();
+            
+            // If no new messages, return empty array
+            if (currentCount <= this.lastMessageCount) {
+                console.log(`No new messages: ${currentCount} <= ${this.lastMessageCount}`);
+                return [];
+            }
+            
+            console.log(`Fetching ${currentCount - this.lastMessageCount} new messages (${this.lastMessageCount + 1} to ${currentCount})`);
+            
+            // Fetch only the new messages
+            const newMessages = [];
+            for (let i = this.lastMessageCount + 1; i <= currentCount; i++) {
+                const message = await this.fetchIndividualMessage(i);
+                if (message) {
+                    newMessages.push(message);
+                }
+            }
+            
+            // Update our tracking
+            this.lastMessageCount = currentCount;
+            
+            // Add to cache
+            this.messageCache.push(...newMessages);
+            
+            console.log(`Fetched ${newMessages.length} new messages`);
+            return newMessages;
+            
+        } catch (error) {
+            console.error('Error fetching new messages:', error);
+            return [];
+        }
+    }
+
+    /**
      * Fetch messages using the improved /now/messages endpoint
      * This returns a clean structured format: { "1": { content, timestamp, username, wallet_address }, "device": "json@1.0" }
+     * DEPRECATED: Use fetchNewMessages() for better performance
      */
     async fetchMessagesFromNowEndpoint() {
         try {
             const endpoint = this.api.config.getEndpoint('PROCESS_NOW_MESSAGES', this.processId);
-            console.log('Fetching messages from /now/messages endpoint:', endpoint);
-            
             const response = await this.api.makeRequest(endpoint, {
                 method: 'GET'
             });
 
             if (response.ok && response.data) {
                 const data = response.data;
-                console.log('Raw /now/messages response:', data);
                 
                 // Parse the new structured format
                 const messages = [];
@@ -83,6 +173,7 @@ class ChatHistory {
                 // Update cache
                 this.messageCache = messages;
                 this.lastFetchTime = Date.now();
+                this.lastMessageCount = messages.length; // Track count for efficient polling
                 
                 return messages;
             }
@@ -214,8 +305,8 @@ class ChatHistory {
     }
 
     /**
-     * Get all chat history - now uses the /now/messages endpoint primarily
-     * Falls back to slot-based retrieval only if needed
+     * Get all chat history - now uses individual message fetching for better performance
+     * Falls back to bulk endpoint and then slot-based retrieval if needed
      */
     async getAllChatHistory(maxSlots = 40, startFromSlot = null) {
         if (this.isLoading) return [];
@@ -223,10 +314,36 @@ class ChatHistory {
         this.isLoading = true;
         
         try {
-            // Try the new /now/messages endpoint first - this is much more efficient
+            // First, try the efficient individual message approach
+            const messageCount = await this.getMessageCount();
+            if (messageCount > 0) {
+                console.log(`Loading ${Math.min(messageCount, maxSlots)} messages via individual message endpoints`);
+                
+                // Calculate which messages to fetch (most recent ones)
+                const startIndex = Math.max(1, messageCount - maxSlots + 1);
+                const endIndex = messageCount;
+                
+                const messages = [];
+                for (let i = startIndex; i <= endIndex; i++) {
+                    const message = await this.fetchIndividualMessage(i);
+                    if (message) {
+                        messages.push(message);
+                    }
+                }
+                
+                // Update our tracking
+                this.lastMessageCount = messageCount;
+                this.messageCache = messages;
+                
+                console.log(`Loaded ${messages.length} messages via individual message endpoints`);
+                return messages;
+            }
+            
+            // Fallback to bulk /now/messages endpoint if individual approach fails
+            console.log('Falling back to bulk /now/messages endpoint');
             const messages = await this.fetchMessagesFromNowEndpoint();
             if (messages.length > 0) {
-                console.log(`Loaded ${messages.length} messages via /now/messages endpoint`);
+                console.log(`Loaded ${messages.length} messages via bulk /now/messages endpoint`);
                 return messages.slice(-maxSlots); // Return the most recent messages up to maxSlots
             }
 
@@ -323,24 +440,31 @@ class ChatHistory {
         this.cachedMessages.clear();
     }
 
-    // Get chat statistics
+    // Get chat statistics - optimized to use cached data
     async getStats(currentUserWalletAddress = null) {
-        const allMessages = await this.getAllChatHistory();
+        // Use cached message count instead of refetching all messages
         const currentSlot = await this.getCurrentSlot();
+        let total = this.messageCountCache || await this.getMessageCount();
         
-        // Calculate sent/received statistics
+        // For detailed sent/received stats, only use cached messages if available
         let sent = 0;
         let received = 0;
-        let total = allMessages.length;
         
-        if (currentUserWalletAddress) {
-            // Count messages from current user's wallet
-            sent = allMessages.filter(msg => 
+        if (currentUserWalletAddress && this.messageCache.length > 0) {
+            // Use cached messages for detailed stats
+            const cachedMessages = this.messageCache;
+            total = cachedMessages.length; // Use actual cached count
+            
+            // Calculate sent/received from cached messages
+            sent = cachedMessages.filter(msg => 
                 msg.walletAddress && msg.walletAddress === currentUserWalletAddress
             ).length;
             
-            // Received = Total slots computed and displayed - Sent
             received = total - sent;
+        } else {
+            // No detailed breakdown available without fetching, just use totals
+            sent = 0;
+            received = total;
         }
         
         return {
@@ -349,7 +473,7 @@ class ChatHistory {
             receivedMessages: received,
             currentSlot: currentSlot,
             cachedSlots: this.cachedMessages.size,
-            latestMessage: allMessages.length > 0 ? allMessages[allMessages.length - 1] : null
+            latestMessage: this.messageCache.length > 0 ? this.messageCache[this.messageCache.length - 1] : null
         };
     }
 }
