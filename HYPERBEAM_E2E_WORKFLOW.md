@@ -175,7 +175,7 @@ const messageCount = parseInt(response.data.body);
 **Performance Features**:
 - **Smart caching**: Message count cached until slot advancement
 - **Individual endpoints**: `/now/messages/N` for specific messages only
-- **No bulk fetching**: Eliminated wasteful `/now/messages` calls during polling
+- **Efficient polling**: Only checks for new messages when AO process slot advances
 
 #### Step 3: Three-Tier Message Ownership Detection
 ```javascript
@@ -268,21 +268,13 @@ const endpoint = `/${processId}/now/messages/${messageIndex}/serialize~json@1.0`
 - Efficient for large message histories
 - 1-based indexing matches AO process storage
 
-#### Strategy 2: Bulk Message Endpoint (DEPRECATED)
-```javascript
-// Location: js/chat-history.js - fetchMessagesFromNowEndpoint()
-const endpoint = `/${processId}/now/messages/serialize~json@1.0`;
-```
-- **No longer used for polling**: Eliminated to prevent bandwidth waste
-- **Legacy fallback only**: Kept for debugging and edge cases
-
-#### Strategy 3: Slot-based Retrieval (Legacy)
+#### Strategy 2: Slot-based Retrieval (Fallback)
 ```javascript
 const endpoint = `/${processId}~process@1.0/compute&slot=${slot}/results/serialize~json@1.0`;
 ```
-- Retrieves messages from specific computation slots
+- Retrieves messages from specific computation slots when individual fetching is not available
 - Handles various response formats (outbox, result arrays, strings)
-- Used as final fallback
+- Used as fallback when primary method fails
 
 ## Real-time Updates & Polling
 
@@ -387,8 +379,8 @@ const suspiciousPatterns = [
 - **Memory Usage**: Efficient Lua table management
 
 ### Network Performance
-- **Ultra-efficient polling**: Slot checks only, no `lenmessages` polling
-- **Minimal data transfer**: Individual message fetching instead of bulk transfers  
+- **Ultra-efficient polling**: Slot-triggered message checking (99% reduction in API calls)
+- **Minimal data transfer**: Individual message fetching via `/now/messages/N` endpoints  
 - **Smart request patterns**: Only fetch when slot advances indicate activity
 - **Connection reuse**: Persistent HTTP connections through proxy
 
@@ -404,12 +396,32 @@ const suspiciousPatterns = [
 - Smooth pending → confirmed state transitions
 - Auto-confirmation prevents stuck messages
 
-### Major Performance Optimizations (Latest)
-- **Slot-triggered polling**: Only checks `lenmessages` when slot advances (99% reduction)
+### Code Cleanup & Optimization (Latest)
+- **Slot-triggered polling**: Only checks `lenmessages` when slot advances (99% reduction in API calls)
 - **Individual message fetching**: Uses `/now/messages/N` for bandwidth efficiency
-- **Eliminated bulk polling**: No more `/now/messages` calls during regular polling
+- **Streamlined codebase**: Removed redundant functions and consolidated duplicated code
 - **Smart caching**: Message count cached until slot advancement
+- **Accurate statistics**: Sent message count based on wallet address matching from displayed messages
 - **Production-ready scalability**: Handles 1000+ messages without performance degradation
+
+### Statistics & Analytics
+```javascript
+// Location: js/chat.js - getStats()
+// Calculate sent messages by wallet address matching
+sent = this.messages.filter(msg => {
+    return msg.walletAddress && 
+           currentUserWalletAddress && 
+           msg.walletAddress === currentUserWalletAddress &&
+           msg.walletAddress.length === 43 && 
+           currentUserWalletAddress.length === 43;
+}).length;
+```
+
+**Statistics Features**:
+- **Wallet-based tracking**: Counts sent messages by matching wallet addresses
+- **Real-time updates**: Statistics refresh during polling cycles
+- **Cross-session accuracy**: Maintains correct counts across browser sessions
+- **Efficient calculation**: Uses displayed messages array for immediate results
 
 ## Configuration Management
 
