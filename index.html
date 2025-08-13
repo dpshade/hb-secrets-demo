@@ -1844,14 +1844,46 @@
                 
                 this.walletUpdateHandler = (e) => {
                     const { walletAddress, source } = e.detail;
-                    CONFIG.debug(`Wallet update from ${source}:`, walletAddress);
+                    const currentWallet = this.auth?.authState?.walletAddress;
+                    
+                    CONFIG.log(`🔥 EVENT HANDLER: Wallet update event received`, {
+                        walletAddress: walletAddress,
+                        displayAddress: walletAddress && walletAddress.length > 10 ? walletAddress.substring(0, 8) + '...' : walletAddress,
+                        source: source,
+                        currentAuthState: currentWallet
+                    });
+                    
+                    // DEFENSIVE: Ignore updates that aren't real wallet addresses
+                    if (!walletAddress || walletAddress === 'Connected' || walletAddress === 'auto-generated') {
+                        CONFIG.log('🚫 EVENT HANDLER: Ignoring invalid wallet update', {
+                            reason: !walletAddress ? 'empty' : `invalid value: ${walletAddress}`,
+                            source: source
+                        });
+                        return;
+                    }
+                    
+                    // DEFENSIVE: Ignore updates if wallet hasn't actually changed
+                    if (currentWallet && currentWallet === walletAddress) {
+                        CONFIG.log('🚫 EVENT HANDLER: Ignoring duplicate wallet update', {
+                            walletAddress: walletAddress.substring(0, 8) + '...',
+                            source: source
+                        });
+                        return;
+                    }
                     
                     // Update auth system internal state
-                    if (this.auth && walletAddress && walletAddress !== 'Connected') {
+                    if (this.auth && walletAddress.length === 43) {
+                        CONFIG.log('🔄 EVENT HANDLER: Updating auth system wallet address', {
+                            newAddress: walletAddress.substring(0, 8) + '...',
+                            source: source
+                        });
                         this.auth.updateWalletAddress(walletAddress);
                     }
                     
                     // Update auth status and UI indicators
+                    CONFIG.log('🔄 EVENT HANDLER: Calling updateAuthStatus from wallet event', {
+                        source: source
+                    });
                     this.updateAuthStatus(true, {
                         walletAddress: walletAddress,
                         method: source || 'push-response'
@@ -2076,10 +2108,24 @@
                     // Extract wallet address from the response structure
                     let walletAddress = null;
                     
+                    CONFIG.log('🔍 WHOAMI PARSING: Checking response structure', {
+                        hasOutbox: !!parsedResponse.outbox,
+                        outboxLength: parsedResponse.outbox?.length,
+                        outboxFirstItem: parsedResponse.outbox?.[0],
+                        responseKeys: Object.keys(parsedResponse)
+                    });
+                    
                     // Check outbox array first
                     if (parsedResponse.outbox && parsedResponse.outbox.length > 0) {
                         const outboxMessage = parsedResponse.outbox[0];
-                        if (outboxMessage.cache && outboxMessage.cache.wallet_address) {
+                        
+                        // Try direct wallet_address first (most common)
+                        if (outboxMessage.wallet_address) {
+                            walletAddress = outboxMessage.wallet_address;
+                            CONFIG.log('Found wallet address in outbox[0].wallet_address:', walletAddress);
+                        }
+                        // Fallback to cache location
+                        else if (outboxMessage.cache && outboxMessage.cache.wallet_address) {
                             walletAddress = outboxMessage.cache.wallet_address;
                             CONFIG.log('Found wallet address in outbox[0].cache.wallet_address:', walletAddress);
                         }
@@ -2088,10 +2134,19 @@
                     // Check numbered slot responses (like "1": {...})
                     if (!walletAddress) {
                         for (const [key, value] of Object.entries(parsedResponse)) {
-                            if (!isNaN(key) && value.message && value.message.cache && value.message.cache.wallet_address) {
-                                walletAddress = value.message.cache.wallet_address;
-                                CONFIG.log(`Found wallet address in [${key}].message.cache.wallet_address:`, walletAddress);
-                                break;
+                            if (!isNaN(key) && value.message) {
+                                // Try direct wallet_address first
+                                if (value.message.wallet_address) {
+                                    walletAddress = value.message.wallet_address;
+                                    CONFIG.log(`Found wallet address in [${key}].message.wallet_address:`, walletAddress);
+                                    break;
+                                }
+                                // Fallback to cache location
+                                else if (value.message.cache && value.message.cache.wallet_address) {
+                                    walletAddress = value.message.cache.wallet_address;
+                                    CONFIG.log(`Found wallet address in [${key}].message.cache.wallet_address:`, walletAddress);
+                                    break;
+                                }
                             }
                         }
                     }
@@ -2303,11 +2358,23 @@
             
             updateAuthStatus(authenticated, authData = {}) {
                 const walletDisplay = this.elements['wallet-display'];
-                CONFIG.log('updateAuthStatus called:', { authenticated, walletAddress: authData.walletAddress, method: authData.method });
+                const currentWalletText = walletDisplay.textContent;
+                CONFIG.log('🔄 WALLET UPDATE: updateAuthStatus called', { 
+                    authenticated, 
+                    newWalletAddress: authData.walletAddress, 
+                    method: authData.method,
+                    currentDisplayText: currentWalletText,
+                    callStack: new Error().stack.split('\n').slice(1, 4).map(line => line.trim())
+                });
                 
-                if (authenticated && authData.walletAddress) {
+                if (authenticated && authData.walletAddress && authData.walletAddress !== 'auto-generated') {
                     let displayAddress = authData.walletAddress.substring(0, 6) + '...' + authData.walletAddress.slice(-6);
-                
+                    
+                    CONFIG.log('✅ WALLET DISPLAY: Setting wallet display to real address', {
+                        fullAddress: authData.walletAddress,
+                        displayAddress: displayAddress,
+                        previousDisplay: currentWalletText
+                    });
                     
                     walletDisplay.textContent = displayAddress;
                     walletDisplay.title = 'Click to copy wallet address'; // Tooltip
@@ -2325,6 +2392,15 @@
                     // Update HyperBEAM status to show successful connection
                     this.updateHyperBEAMStatus('connected', 'HyperBEAM Connected');
                 } else {
+                    CONFIG.log('❌ WALLET DISPLAY: Setting to "No wallet"', {
+                        reason: !authenticated ? 'not authenticated' : 
+                                !authData.walletAddress ? 'no wallet address' :
+                                authData.walletAddress === 'auto-generated' ? 'filtered out auto-generated' : 'unknown',
+                        walletAddress: authData.walletAddress,
+                        authenticated: authenticated,
+                        previousDisplay: currentWalletText
+                    });
+                    
                     walletDisplay.textContent = 'No wallet';
                     walletDisplay.title = '';
                     walletDisplay.style.cursor = 'default';

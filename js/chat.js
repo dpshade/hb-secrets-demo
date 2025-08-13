@@ -54,9 +54,6 @@ class ChatSystem {
         this.messageContainer = messageContainer;
         this.statusCallback = statusCallback;
         
-        // Ensure HyperBEAM has wallet context (ONCE per session)
-        await this.initializeWalletContext();
-        
         // Get initial slot
         await this.initializeSlotMonitoring();
         
@@ -69,43 +66,6 @@ class ChatSystem {
         this.config.log('Chat system initialized with UI components');
     }
 
-    /**
-     * Initialize wallet context with HyperBEAM (ONCE per session)
-     */
-    async initializeWalletContext() {
-        try {
-            this.config.log('Initializing wallet context with HyperBEAM (session whoami call)');
-            const whoamiResult = await this.api.whoami();
-            if (whoamiResult.success) {
-                this.config.log('Session whoami successful - HyperBEAM has wallet context');
-                
-                // If we got a wallet address from whoami, make sure it updates the display immediately
-                if (whoamiResult.walletAddress && whoamiResult.walletAddress !== 'Connected') {
-                    this.config.log('Wallet address from session whoami:', whoamiResult.walletAddress.substring(0, 8) + '...');
-                    
-                    // Update the auth system's internal state
-                    if (this.auth && typeof this.auth.updateWalletAddress === 'function') {
-                        this.auth.updateWalletAddress(whoamiResult.walletAddress);
-                    }
-                    
-                    // Dispatch wallet update event to ensure UI gets updated
-                    if (typeof window !== 'undefined') {
-                        window.dispatchEvent(new CustomEvent('hyperbeam-wallet-update', {
-                            detail: {
-                                walletAddress: whoamiResult.walletAddress,
-                                source: 'session-whoami'
-                            }
-                        }));
-                    }
-                }
-            } else {
-                this.config.log('Session whoami failed, but continuing anyway:', whoamiResult.error);
-            }
-        } catch (error) {
-            this.config.log('Error during wallet context initialization:', error);
-            // Continue anyway - HyperBEAM may still work with automatic wallet generation
-        }
-    }
 
     /**
      * Initialize slot monitoring
@@ -229,37 +189,7 @@ class ChatSystem {
                 this.updateSentMessageCount();
                 this.updateStatus(`Message sent successfully!`, 'connected');
                 
-                // Extract wallet address from response if available, or use default for successful connection
-                let walletAddress = 'Connected'; // Default for successful 200 response
-                
-                // First check the outbox array
-                if (result.data && result.data.outbox && result.data.outbox.length > 0) {
-                    const outboxMessage = result.data.outbox[0];
-                    if (outboxMessage.cache && outboxMessage.cache.wallet_address) {
-                        walletAddress = outboxMessage.cache.wallet_address;
-                        this.config.debug('Using wallet address from outbox:', walletAddress);
-                    }
-                }
-                
-                // Also check numbered slot responses (like "1": {...})
-                if (walletAddress === 'Connected' && result.data) {
-                    for (const [key, value] of Object.entries(result.data)) {
-                        if (!isNaN(key) && value.message && value.message.cache && value.message.cache.wallet_address) {
-                            walletAddress = value.message.cache.wallet_address;
-                            this.config.debug(`Using wallet address from slot [${key}]:`, walletAddress);
-                            break;
-                        }
-                    }
-                }
-                
-                // Always emit wallet update event on successful 200 response
-                this.config.debug('Updating wallet status - successful response with address:', walletAddress);
-                window.dispatchEvent(new CustomEvent('hyperbeam-wallet-update', {
-                    detail: {
-                        walletAddress: walletAddress,
-                        source: 'push-response'
-                    }
-                }));
+                this.config.log('💬 CHAT: Message sent successfully, no wallet update needed');
                 
                 // IMMEDIATELY check for computed result with faster timing
                 this.checkForNewMessagesAndReplacePending(messageId, messageContent, username);

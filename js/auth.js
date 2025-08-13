@@ -275,6 +275,14 @@ class AuthSystem {
             ? this.authState.walletAddress 
             : authData.walletAddress;
             
+        this.config.log('🔑 AUTH: handleSuccessfulAuth called', {
+            incomingMethod: authData.method,
+            incomingWalletAddress: authData.walletAddress,
+            currentWalletAddress: this.authState.walletAddress,
+            preservedWalletAddress: preservedWalletAddress,
+            wasPreserved: preservedWalletAddress !== authData.walletAddress
+        });
+            
         this.authState = {
             authenticated: true,
             method: authData.method,
@@ -285,6 +293,12 @@ class AuthSystem {
             data: authData.data,
             keyid: authData.keyid || this.authState.keyid // Preserve existing keyid if not provided
         };
+        
+        this.config.log('💾 AUTH: authState updated', {
+            newWalletAddress: preservedWalletAddress,
+            method: authData.method,
+            authenticated: true
+        });
 
         // Persist auth state
         this.persistAuthState();
@@ -482,7 +496,16 @@ class AuthSystem {
     updateWalletAddress(walletAddress) {
         if (!walletAddress) return;
         
-        this.config.log('Updating wallet address in auth state:', walletAddress);
+        const previousAddress = this.authState.walletAddress;
+        const addressChanged = previousAddress !== walletAddress;
+        
+        this.config.log('🔄 AUTH: updateWalletAddress called', {
+            newWalletAddress: walletAddress.substring(0, 8) + '...',
+            previousWalletAddress: previousAddress,
+            addressChanged: addressChanged,
+            fullNewAddress: walletAddress
+        });
+        
         this.authState.walletAddress = walletAddress;
         this.authState.lastActivity = Date.now();
         

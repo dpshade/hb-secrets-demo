@@ -818,37 +818,23 @@ class HyperBEAMAPI {
             }
             
             if (walletAddress) {
-                this.config.log('Wallet address from whoami:', walletAddress.substring(0, 8) + '...');
+                this.config.log('🎯 HYPERBEAM API: Wallet address found in whoami response', {
+                    walletAddress: walletAddress.substring(0, 8) + '...',
+                    fullWalletAddress: walletAddress,
+                    previousWalletAddress: this.walletAddress,
+                    source: 'whoami response parsing'
+                });
                 
                 // Store the wallet address 
                 this.walletAddress = walletAddress;
                 
-                // Immediately update the wallet display element
-                const walletDisplay = document.getElementById('wallet-display');
-                if (walletDisplay) {
-                    const displayAddress = walletAddress.substring(0, 6) + '...' + walletAddress.slice(-6);
-                    walletDisplay.textContent = displayAddress;
-                    walletDisplay.title = 'Click to copy wallet address';
-                    walletDisplay.style.cursor = 'pointer';
-                    walletDisplay.classList.remove('no-wallet');
-                    walletDisplay.setAttribute('data-full-address', walletAddress);
-                    
-                    // Add click handler for copying
-                    walletDisplay.onclick = () => {
-                        if (typeof window.copyToClipboard === 'function') {
-                            window.copyToClipboard(walletAddress, 'Wallet Address');
-                        } else {
-                            navigator.clipboard.writeText(walletAddress).catch(() => {
-                                console.log('Failed to copy wallet address');
-                            });
-                        }
-                    };
-                    
-                    this.config.log('Updated wallet display to:', displayAddress);
-                }
-                
                 // Dispatch wallet update event for other components
                 if (typeof window !== 'undefined') {
+                    this.config.log('📢 HYPERBEAM API: Dispatching wallet update event', {
+                        walletAddress: walletAddress.substring(0, 8) + '...',
+                        source: 'whoami'
+                    });
+                    
                     window.dispatchEvent(new CustomEvent('hyperbeam-wallet-update', {
                         detail: {
                             walletAddress: walletAddress,
