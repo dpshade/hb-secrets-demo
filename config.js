@@ -14,7 +14,7 @@ const CONFIG = {
     ],
     
     // AO Process Configuration
-    _processId: 'qQwarXWdrLhJ4Kc1WdnmVWbYPvLgkRKvmcePIlv4yaQ',
+    _processId: '2gTTMIrA8Z2DsHRxsUHmWYGiI-RuK025IW6_H1pVvbQ',
     
     get PROCESS_ID() {
         return this._processId;
@@ -56,6 +56,8 @@ const CONFIG = {
         // Process Operations
         PROCESS_NOW: (processId) => `/${processId}/now/~json@1.0/serialize`,
         PROCESS_NOW_MESSAGES: (processId) => `/${processId}/now/messages/serialize~json@1.0`,
+        PROCESS_MESSAGE_COUNT: (processId) => `/${processId}/now/lenmessages/serialize~json@1.0`,
+        PROCESS_INDIVIDUAL_MESSAGE: (processId, messageIndex) => `/${processId}/now/messages/${messageIndex}/serialize~json@1.0`,
         PROCESS_PUSH: (processId, action) => `/${processId}/push&action=${action}&!/serialize~json@1.0`,
         PROCESS_PUSH_WITH_PARAMS: (processId, action, params) => {
             // Manual parameter construction for HyperBEAM URLs
@@ -114,7 +116,7 @@ const CONFIG = {
     
     // Timing Configuration
     TIMING: {
-        MESSAGE_POLL_INTERVAL: 3500,
+        MESSAGE_POLL_INTERVAL: 2000,  // Poll every 2 seconds for messages
         STATS_UPDATE_INTERVAL: 5000,
         SLOT_POLL_INTERVAL: 2000,
         SLOT_ADVANCEMENT_TIMEOUT: 10000,
