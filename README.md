@@ -4,7 +4,7 @@ A real-time decentralized chat application built with HyperBEAM and AO (Autonomo
 
 ## Features
 
-- **Real-time messaging** via HyperBEAM direct push API
+- **Real-time messaging** via HyperBEAM push API with auto-authentication
 - **Decentralized storage** using AO process backend
 - **Automatic authentication** with wallet generation
 - **Slot-based persistence** for message history
@@ -48,7 +48,7 @@ bun run start
 ### Message Flow
 1. User input → Validation & sanitization
 2. Optimistic UI update (pending state)
-3. HyperBEAM direct push using `&!` pattern
+3. HyperBEAM push with `&!` auto-authentication
 4. AO process storage with indexed array
 5. Slot-triggered polling for new messages
 6. Message confirmation and UI state update

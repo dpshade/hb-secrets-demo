@@ -56,17 +56,17 @@ this.addMessage(message); // Immediately display as pending
 - **Confirmed**: Full opacity with smooth transition
 - **Auto-confirmed**: Fallback after 15-second timeout
 
-#### Step 3: HyperBEAM Direct Push
+#### Step 3: HyperBEAM Push with Auto-Authentication
 ```javascript
 // Location: js/hyperbeam-api.js - HyperBEAMAPI.pushMessage()
 const endpoint = `/${processId}/push&action=chat_message&chat=${message}&timestamp=${Date.now()}&username=${username}&wallet_address=${walletAddress}&!/serialize~json@1.0`;
 ```
 
-**Direct Push Architecture**:
-- Uses HyperBEAM's `&!` pattern for immediate execution
-- Parameters passed as URL query string (GET request)
-- Bypasses traditional message queue for real-time delivery
-- Automatic wallet authentication via HyperBEAM context
+**Auto-Authentication Architecture**:
+- Uses HyperBEAM's `&!` pattern to trigger automatic wallet authentication
+- Parameters passed as URL query string (GET request)  
+- HyperBEAM's auth-hook automatically generates/manages wallet signing
+- Transparent authentication without manual wallet management
 
 #### Step 4: HyperBEAM Processing
 **Proxy Layer** (server.js):
