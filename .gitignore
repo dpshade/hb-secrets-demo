@@ -91,3 +91,9 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Cache files
+*.cache.json
+*_cache.json
+.users_cache.json
+.channels_cache*.json
